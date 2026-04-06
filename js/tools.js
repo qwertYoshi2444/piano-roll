@@ -119,11 +119,17 @@ export const DrawTool = {
 
         if (editState.action === 'resize') {
             const newRightEdge = snapTick(rawTick, e.altKey);
-            const deltaTick = newRightEdge - (editState.targetNote.tick + editState.targetNote.duration);
+            
+            // 修正箇所：ターゲットノートの元の右端位置を計算の基準にする
+            const targetOriginalData = editState.originalNotesData.find(i => i.note === editState.targetNote);
+            if (!targetOriginalData) return;
+            
+            const originalRightEdge = targetOriginalData.originalTick + targetOriginalData.originalDuration;
+            const deltaTick = newRightEdge - originalRightEdge;
             
             editState.originalNotesData.forEach(item => {
                 let newDuration = item.originalDuration + deltaTick;
-                if (newDuration < 1) newDuration = 1;
+                if (newDuration < 1) newDuration = 1; // 最小の長さを保証
                 item.note.duration = newDuration;
             });
             
@@ -131,8 +137,11 @@ export const DrawTool = {
             const tickDiff = rawTick - editState.startMouseTick;
             const pitchDiff = pitch - editState.startMousePitch;
 
-            const snappedTargetTick = snapTick(editState.originalNotesData.find(i => i.note === editState.targetNote).originalTick + tickDiff, e.altKey);
-            const actualTickDiff = snappedTargetTick - editState.originalNotesData.find(i => i.note === editState.targetNote).originalTick;
+            const targetOriginalData = editState.originalNotesData.find(i => i.note === editState.targetNote);
+            if (!targetOriginalData) return;
+
+            const snappedTargetTick = snapTick(targetOriginalData.originalTick + tickDiff, e.altKey);
+            const actualTickDiff = snappedTargetTick - targetOriginalData.originalTick;
 
             editState.originalNotesData.forEach(item => {
                 let newTick = item.originalTick + actualTickDiff;
@@ -227,7 +236,6 @@ function deleteAt(x, y) {
     if (note) STATE.notes = STATE.notes.filter(n => n.id !== note.id);
 }
 
-// 途切れていた関数の完全版
 export function resetEditState() {
     editState.action = null;
     editState.targetNote = null;
