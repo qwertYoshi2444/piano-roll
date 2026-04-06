@@ -1,0 +1,169 @@
+import { STATE, getSelectedNotes, deleteSelectedNotes } from './state.js';
+import { xToTick, getPitchAtY, getNoteAt } from './utils.js';
+import { renderAll } from './renderer.js';
+import { DrawTool, SelectTool, MuteTool, DeleteTool, editState, resetEditState } from './tools.js';
+import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
+import { setTool } from './main.js';
+
+let canvasGrid;
+let isMiddleDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+export function initEvents(gridCvs) {
+    canvasGrid = gridCvs;
+
+    canvasGrid.addEventListener('contextmenu', e => e.preventDefault());
+    canvasGrid.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    canvasGrid.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('keydown', onKeyDown);
+}
+
+function onMouseDown(e) {
+    lastMouseX = e.clientX; 
+    lastMouseY = e.clientY;
+
+    if (e.button === 1) {
+        isMiddleDragging = true;
+        document.body.style.cursor = 'grabbing';
+        e.preventDefault(); 
+        return;
+    }
+
+    const rect = canvasGrid.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+
+    if (STATE.currentTool === 'draw') DrawTool.onMouseDown(e, mouseX, mouseY);
+    else if (STATE.currentTool === 'select') SelectTool.onMouseDown(e, mouseX, mouseY);
+    else if (STATE.currentTool === 'mute') MuteTool.onMouseDown(e, mouseX, mouseY);
+    else if (STATE.currentTool === 'delete') DeleteTool.onMouseDown(e, mouseX, mouseY);
+
+    renderAll();
+}
+
+function onMouseMove(e) {
+    if (isMiddleDragging) {
+        const dx = e.clientX - lastMouseX;
+        const dy = e.clientY - lastMouseY;
+        STATE.scrollTick = Math.max(0, STATE.scrollTick - dx / STATE.zoomX);
+        STATE.scrollPitch = Math.min(127, Math.max(10, STATE.scrollPitch + dy / STATE.zoomY));
+        lastMouseX = e.clientX; 
+        lastMouseY = e.clientY;
+        renderAll(); 
+        return;
+    }
+
+    const rect = canvasGrid.getBoundingClientRect();
+    const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    const rawTick = xToTick(mouseX);
+    const pitch = getPitchAtY(mouseY);
+
+    if (STATE.currentTool === 'draw') DrawTool.onMouseMove(e, mouseX, mouseY, rawTick, pitch);
+    else if (STATE.currentTool === 'select') SelectTool.onMouseMove(e, mouseX, mouseY);
+    else if (STATE.currentTool === 'mute') MuteTool.onMouseMove(e, mouseX, mouseY);
+    else if (STATE.currentTool === 'delete') DeleteTool.onMouseMove(e, mouseX, mouseY);
+
+    updateCursor(mouseX, mouseY, rawTick);
+    renderAll();
+}
+
+function onMouseUp(e) {
+    if (e.button === 1) {
+        isMiddleDragging = false;
+        document.body.style.cursor = 'default';
+        return;
+    }
+
+    if (STATE.currentTool === 'draw') DrawTool.onMouseUp();
+    else if (STATE.currentTool === 'select') SelectTool.onMouseUp();
+    else if (STATE.currentTool === 'mute') MuteTool.onMouseUp();
+    else if (STATE.currentTool === 'delete') DeleteTool.onMouseUp();
+
+    // マウスを離したらカーソルをリセット
+    const rect = canvasGrid.getBoundingClientRect();
+    const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    updateCursor(mouseX, mouseY, xToTick(mouseX));
+    
+    renderAll();
+}
+
+function updateCursor(mouseX, mouseY, rawTick) {
+    if (isMiddleDragging || editState.action) return;
+    
+    if (STATE.currentTool !== 'draw') {
+        // Drawツール以外は固定カーソル（main.jsで設定）
+        return;
+    }
+
+    const hoveredNote = getNoteAt(mouseX, mouseY);
+    if (hoveredNote && Math.abs(rawTick - (hoveredNote.tick + hoveredNote.duration)) <= (8 / STATE.zoomX)) {
+        canvasGrid.style.cursor = 'ew-resize';
+    } else if (hoveredNote) {
+        canvasGrid.style.cursor = 'move';
+    } else {
+        canvasGrid.style.cursor = 'crosshair';
+    }
+}
+
+function onWheel(e) {
+    e.preventDefault();
+    const mouseX = e.offsetX, mouseY = e.offsetY;
+    const targetTick = xToTick(mouseX), targetPitch = getPitchAtY(mouseY);
+
+    if (e.ctrlKey) {
+        STATE.zoomX *= e.deltaY > 0 ? 0.8 : 1.25;
+        if (STATE.zoomX < 0.05) STATE.zoomX = 0.05; if (STATE.zoomX > 10) STATE.zoomX = 10;
+        STATE.scrollTick = Math.max(0, targetTick - (mouseX / STATE.zoomX));
+    } else if (e.altKey) {
+        STATE.zoomY *= e.deltaY > 0 ? 0.9 : 1.1;
+        if (STATE.zoomY < 5) STATE.zoomY = 5; if (STATE.zoomY > 50) STATE.zoomY = 50;
+        STATE.scrollPitch = Math.min(127, targetPitch + (mouseY / STATE.zoomY));
+    } else {
+        STATE.scrollPitch = Math.min(127, STATE.scrollPitch + (e.deltaY > 0 ? -2 : 2));
+    }
+    renderAll();
+}
+
+function onKeyDown(e) {
+    // ツール切り替えショートカット
+    if (e.key.toLowerCase() === 'p') setTool('draw');
+    if (e.key.toLowerCase() === 'e') setTool('select');
+    if (e.key.toLowerCase() === 't') setTool('mute');
+    if (e.key.toLowerCase() === 'd') setTool('delete');
+
+    // 選択・削除
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        STATE.notes.forEach(n => n.selected = true);
+        renderAll();
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        deleteSelectedNotes();
+        renderAll();
+    }
+
+    // コピー＆ペースト
+    if (e.ctrlKey && e.key.toLowerCase() === 'c') { copyNotes(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'x') { cutNotes(); renderAll(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'v') { pasteNotes(); renderAll(); }
+    
+    // ピッチの移動 (オクターブ・半音)
+    if (e.ctrlKey && e.key === 'ArrowUp') { shiftPitch(12); e.preventDefault(); }
+    if (e.ctrlKey && e.key === 'ArrowDown') { shiftPitch(-12); e.preventDefault(); }
+    if (e.shiftKey && e.key === 'ArrowUp') { shiftPitch(1); e.preventDefault(); }
+    if (e.shiftKey && e.key === 'ArrowDown') { shiftPitch(-1); e.preventDefault(); }
+}
+
+function shiftPitch(amount) {
+    const selected = getSelectedNotes();
+    if (selected.length === 0) return;
+    selected.forEach(n => {
+        n.pitch = Math.min(127, Math.max(0, n.pitch + amount));
+    });
+    renderAll();
+}

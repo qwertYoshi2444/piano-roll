@@ -1,17 +1,15 @@
 import { STATE, clearSelection } from './state.js';
 import { getNoteAt, xToTick, getPitchAtY, snapTick, tickToX, pitchToY } from './utils.js';
 
-// ツール共通の操作状態
 export const editState = {
-    action: null,          // 'create', 'move', 'resize', 'delete', 'select', 'mute'
-    targetNote: null,      // 主要な操作対象ノート
+    action: null,
+    targetNote: null,
     startMouseTick: 0,
     startMousePitch: 0,
-    originalNotesData:[], // 複数選択移動用のオリジナルデータ保存
-    processedNoteIds: new Set() // ドラグ中の重複処理防止用（Mute等）
+    originalNotesData:[],
+    processedNoteIds: new Set()
 };
 
-// --- ヘルパー: 矩形選択の当たり判定 ---
 function updateSelectionBox() {
     const box = STATE.selectionBox;
     const minX = Math.min(box.startX, box.currentX);
@@ -25,7 +23,6 @@ function updateSelectionBox() {
         const nw = note.duration * STATE.zoomX;
         const nh = STATE.zoomY;
         
-        // AABB (Axis-Aligned Bounding Box) 衝突判定
         const isIntersecting = nx < maxX && (nx + nw) > minX && ny < maxY && (ny + nh) > minY;
         note.selected = isIntersecting;
     });
@@ -48,35 +45,29 @@ export const DrawTool = {
             STATE.selectionBox.startY = mouseY;
             STATE.selectionBox.currentX = mouseX;
             STATE.selectionBox.currentY = mouseY;
-            if (!e.shiftKey) clearSelection(); // Shiftを押していなければ既存選択を解除
+            if (!e.shiftKey) clearSelection();
             return;
         }
 
         // [左クリック]
         if (e.button === 0) {
             if (clickedNote) {
-                // Shiftキーで複製 (Clone)
+                // Shiftキーで複製
                 if (e.shiftKey) {
                     let notesToCopy = STATE.notes.filter(n => n.selected);
-                    // 選択されていないノートをShift+クリックした場合は、そのノート単体を複製
                     if (!clickedNote.selected) {
                         notesToCopy = [clickedNote];
                     }
-                    
                     const clones = notesToCopy.map(n => ({
                         ...n,
                         id: STATE.nextNoteId++,
-                        selected: true // 複製された側を選択状態に
+                        selected: true
                     }));
-                    
-                    STATE.notes.forEach(n => n.selected = false); // 元の選択を解除
+                    STATE.notes.forEach(n => n.selected = false);
                     STATE.notes.push(...clones);
-                    
-                    // クリックしたノートのクローンを新しいターゲットに設定
                     clickedNote = clones.find(c => c.pitch === clickedNote.pitch && c.tick === clickedNote.tick);
                 }
 
-                // ノートが選択されていなければ、それを単独選択
                 if (!clickedNote.selected && !e.shiftKey) {
                     clearSelection();
                     clickedNote.selected = true;
@@ -93,11 +84,9 @@ export const DrawTool = {
                 editState.startMouseTick = rawTick;
                 editState.startMousePitch = pitch;
                 
-                // 選択されている全ノートの初期状態を保存（複数同時移動・リサイズのため）
                 editState.originalNotesData = STATE.notes.filter(n => n.selected).map(n => ({
                     note: n, originalTick: n.tick, originalPitch: n.pitch, originalDuration: n.duration
                 }));
-
             } else {
                 // 空き地をクリック (新規作成)
                 clearSelection();
@@ -132,7 +121,6 @@ export const DrawTool = {
             const newRightEdge = snapTick(rawTick, e.altKey);
             const deltaTick = newRightEdge - (editState.targetNote.tick + editState.targetNote.duration);
             
-            // 選択された全てのノートの長さを変更
             editState.originalNotesData.forEach(item => {
                 let newDuration = item.originalDuration + deltaTick;
                 if (newDuration < 1) newDuration = 1;
@@ -143,7 +131,6 @@ export const DrawTool = {
             const tickDiff = rawTick - editState.startMouseTick;
             const pitchDiff = pitch - editState.startMousePitch;
 
-            // スナップ処理はターゲットノート基準で計算し、その差分を他に適用する
             const snappedTargetTick = snapTick(editState.originalNotesData.find(i => i.note === editState.targetNote).originalTick + tickDiff, e.altKey);
             const actualTickDiff = snappedTargetTick - editState.originalNotesData.find(i => i.note === editState.targetNote).originalTick;
 
@@ -176,8 +163,6 @@ export const DrawTool = {
         resetEditState();
     }
 };
-
-// --- その他のツール ---
 
 export const SelectTool = {
     onMouseDown: (e, mouseX, mouseY) => {
@@ -220,7 +205,7 @@ function toggleMuteAt(x, y) {
     const note = getNoteAt(x, y);
     if (note && !editState.processedNoteIds.has(note.id)) {
         note.muted = !note.muted;
-        editState.processedNoteIds.add(note.id); // 一度のドラッグで何度も反転しないように記録
+        editState.processedNoteIds.add(note.id);
     }
 }
 
@@ -242,8 +227,10 @@ function deleteAt(x, y) {
     if (note) STATE.notes = STATE.notes.filter(n => n.id !== note.id);
 }
 
-// 共通リセット処理
-function resetEditState() {
+// 途切れていた関数の完全版
+export function resetEditState() {
     editState.action = null;
     editState.targetNote = null;
-    editState.originalNotesData =
+    editState.originalNotesData =[];
+    editState.processedNoteIds.clear();
+}
