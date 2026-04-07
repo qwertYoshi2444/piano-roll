@@ -1,24 +1,20 @@
-import { STATE } from './state.js';
+import { STATE, clearSelection } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
 
-// DOM読み込み完了時に初期化を行う
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
     const keyCvs = document.getElementById('keyboard-canvas');
     const timeCvs = document.getElementById('timeline-canvas');
 
-    // モジュールの初期化
     initRenderer(gridCvs, keyCvs, timeCvs);
     initEvents(gridCvs);
 
-    // リサイズ処理のバインド
     window.addEventListener('resize', resizeCanvas);
-    resizeCanvas(); // 初回リサイズ＆描画
+    resizeCanvas();
 
-    // ツールバーUIのバインド
     setupToolbar();
-    setTool('draw'); // デフォルトツール
+    setTool('draw');
 });
 
 function resizeCanvas() {
@@ -43,12 +39,18 @@ function resizeCanvas() {
 }
 
 function setupToolbar() {
-    // スナップ設定
     document.getElementById('snap-select').addEventListener('change', e => {
         STATE.snap = parseInt(e.target.value, 10);
     });
+    
+    // --- トラック選択プルダウンの変更イベント ---
+    document.getElementById('track-select').addEventListener('change', e => {
+        // トラック切り替え時は、予期せぬ挙動を防ぐため現在の選択状態を解除する
+        clearSelection(); 
+        STATE.activeTrackId = parseInt(e.target.value, 10);
+        renderAll();
+    });
 
-    // ツールボタンのクリックイベント
     const tools = ['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
@@ -56,18 +58,15 @@ function setupToolbar() {
     });
 }
 
-// ツールの切り替えとUI反映を行う公開関数
 export function setTool(toolName) {
     STATE.currentTool = toolName;
     
-    // ボタンのハイライト状態を更新
     document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
     document.getElementById(`btn-${toolName}`).classList.add('active');
     
-    // ツールに応じたデフォルトカーソルを設定
     const gridCvs = document.getElementById('grid-canvas');
     if (toolName === 'draw') gridCvs.style.cursor = 'crosshair';
     else if (toolName === 'select') gridCvs.style.cursor = 'cell';
     else if (toolName === 'mute') gridCvs.style.cursor = 'not-allowed';
-    else if (toolName === 'delete') gridCvs.style.cursor = 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'red\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><line x1=\'18\' y1=\'6\' x2=\'6\' y2=\'18\'></line><line x1=\'6\' y1=\'6\' x2=\'18\' y2=\'18\'></line></svg>") 8 8, auto'; // 簡易的な消しゴムカーソル
+    else if (toolName === 'delete') gridCvs.style.cursor = 'url("data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'16\' height=\'16\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'red\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><line x1=\'18\' y1=\'6\' x2=\'6\' y2=\'18\'></line><line x1=\'6\' y1=\'6\' x2=\'18\' y2=\'18\'></line></svg>") 8 8, auto';
 }

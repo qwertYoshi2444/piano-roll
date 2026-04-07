@@ -1,4 +1,4 @@
-import { STATE, clearSelection } from './state.js';
+import { STATE, clearSelection, deleteNote } from './state.js';
 import { getNoteAt, xToTick, getPitchAtY, snapTick, tickToX, pitchToY } from './utils.js';
 
 export const editState = {
@@ -52,7 +52,6 @@ export const DrawTool = {
         // [左クリック]
         if (e.button === 0) {
             if (clickedNote) {
-                // Shiftキーで複製
                 if (e.shiftKey) {
                     let notesToCopy = STATE.notes.filter(n => n.selected);
                     if (!clickedNote.selected) {
@@ -88,7 +87,6 @@ export const DrawTool = {
                     note: n, originalTick: n.tick, originalPitch: n.pitch, originalDuration: n.duration
                 }));
             } else {
-                // 空き地をクリック (新規作成)
                 clearSelection();
                 editState.action = 'create';
                 const snappedTick = snapTick(rawTick, e.altKey);
@@ -104,7 +102,7 @@ export const DrawTool = {
         else if (e.button === 2) {
             editState.action = 'delete';
             if (clickedNote) {
-                STATE.notes = STATE.notes.filter(n => n.id !== clickedNote.id);
+                deleteNote(clickedNote); // アニメーション付き削除関数に変更
             }
         }
     },
@@ -120,7 +118,6 @@ export const DrawTool = {
         if (editState.action === 'resize') {
             const newRightEdge = snapTick(rawTick, e.altKey);
             
-            // 修正箇所：ターゲットノートの元の右端位置を計算の基準にする
             const targetOriginalData = editState.originalNotesData.find(i => i.note === editState.targetNote);
             if (!targetOriginalData) return;
             
@@ -129,7 +126,7 @@ export const DrawTool = {
             
             editState.originalNotesData.forEach(item => {
                 let newDuration = item.originalDuration + deltaTick;
-                if (newDuration < 1) newDuration = 1; // 最小の長さを保証
+                if (newDuration < 1) newDuration = 1; 
                 item.note.duration = newDuration;
             });
             
@@ -158,7 +155,7 @@ export const DrawTool = {
         } else if (editState.action === 'delete') {
             const hoveredNote = getNoteAt(mouseX, mouseY);
             if (hoveredNote) {
-                STATE.notes = STATE.notes.filter(n => n.id !== hoveredNote.id);
+                deleteNote(hoveredNote); // アニメーション付き削除関数に変更
             }
         }
     },
@@ -233,7 +230,7 @@ export const DeleteTool = {
 
 function deleteAt(x, y) {
     const note = getNoteAt(x, y);
-    if (note) STATE.notes = STATE.notes.filter(n => n.id !== note.id);
+    if (note) deleteNote(note); // アニメーション付き削除関数に変更
 }
 
 export function resetEditState() {

@@ -3,6 +3,7 @@ import { tickToX, xToTick, pitchToY, isBlackKey, getNoteName } from './utils.js'
 
 let ctxGrid, ctxKeyboard, ctxTimeline;
 let canvasGrid, canvasKeyboard, canvasTimeline;
+let animationFrameId = null;
 
 export function initRenderer(gridCvs, keyCvs, timeCvs) {
     canvasGrid = gridCvs;
@@ -15,12 +16,44 @@ export function initRenderer(gridCvs, keyCvs, timeCvs) {
 
 export function renderAll() {
     renderGrid();
-    renderSelectionRect(); // ノートの下に選択枠を描くか、上に描くか。今回はノートの下
-    renderNotes();
-    if (STATE.selectionBox.active) renderSelectionRect(); // 枠線はノートの上
+    renderSelectionRect();
+    renderGhostNotes(); // 非アクティブなトラックのノートを描画
+    renderNotes();      // アクティブなトラックのノートを描画
+    renderDyingNotes(); // 削除されてフェードアウト中のノートを描画
+    if (STATE.selectionBox.active) renderSelectionRect();
     renderKeyboard();
     renderTimeline();
 }
+
+// --- アニメーション・ループ管理 ---
+export function startFadeOutAnimation() {
+    if (!animationFrameId) {
+        animateFadeOut();
+    }
+}
+
+function animateFadeOut() {
+    let stillAnimating = false;
+    
+    // 透明度を減算
+    STATE.dyingNotes.forEach(note => {
+        note.opacity -= 0.05; // 減衰速度 (0.05 = 約20フレームで消滅)
+        if (note.opacity > 0) stillAnimating = true;
+    });
+
+    // 完全に透明になったものを配列から除去
+    STATE.dyingNotes = STATE.dyingNotes.filter(note => note.opacity > 0);
+
+    renderAll(); // 再描画
+
+    if (stillAnimating) {
+        animationFrameId = requestAnimationFrame(animateFadeOut);
+    } else {
+        animationFrameId = null; // アニメーション終了
+    }
+}
+
+// --- 個別の描画関数 ---
 
 function renderGrid() {
     const w = canvasGrid.width, h = canvasGrid.height;
@@ -29,7 +62,6 @@ function renderGrid() {
     const topPitch = STATE.scrollPitch + 1;
     const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
 
-    // 背景の横帯（鍵盤）
     for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
         if (pitch < 0 || pitch > 127) continue;
         const y = pitchToY(pitch);
@@ -44,7 +76,6 @@ function renderGrid() {
         ctxGrid.stroke();
     }
 
-    // 縦のグリッド線
     const snapTickVal = STATE.ppq / 4; 
     let currentTick = Math.floor(STATE.scrollTick / snapTickVal) * snapTickVal;
     
@@ -64,26 +95,52 @@ function renderGrid() {
     ctxGrid.stroke();
 }
 
+function renderGhostNotes() {
+    const heightPadding = 2;
+    // アクティブではない全てのトラックを描画
+    STATE.tracks.filter(t => t.id !== STATE.activeTrackId).forEach(track => {
+        track.notes.forEach(note => {
+            const x = tickToX(note.tick);
+            const y = pitchToY(note.pitch);
+            const w = note.duration * STATE.zoomX;
+            const h = STATE.zoomY;
+            
+            if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
+
+            // ゴーストノートは半透明で描画（ミュート状態も反映）
+            ctxGrid.fillStyle = note.muted ? 'rgba(85, 85, 85, 0.3)' : 'rgba(150, 150, 150, 0.4)';
+            ctxGrid.strokeStyle = 'rgba(50, 50, 50, 0.5)';
+            ctxGrid.lineWidth = 1;
+            
+            ctxGrid.beginPath();
+            if (ctxGrid.roundRect) ctxGrid.roundRect(x, y + heightPadding, w, h - heightPadding * 2, 2);
+            else ctxGrid.rect(x, y + heightPadding, w, h - heightPadding * 2);
+            ctxGrid.fill(); 
+            ctxGrid.stroke();
+        });
+    });
+}
+
 function renderNotes() {
     const heightPadding = 2;
+    const activeTrack = STATE.tracks.find(t => t.id === STATE.activeTrackId);
+    
     STATE.notes.forEach(note => {
         const x = tickToX(note.tick);
         const y = pitchToY(note.pitch);
         const w = note.duration * STATE.zoomX;
         const h = STATE.zoomY;
         
-        // 画面外スキップ
         if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
 
-        // 状態に応じたカラーリング
-        let fillColor = '#ff6600';
-        let strokeColor = '#cc5200';
+        let fillColor = activeTrack.color;
+        let strokeColor = activeTrack.borderColor;
         
         if (note.muted) {
             fillColor = '#555555';
             strokeColor = '#333333';
         } else if (note.selected) {
-            fillColor = '#ff3333'; // 選択時は赤色
+            fillColor = '#ff3333'; 
             strokeColor = '#cc0000';
         }
 
@@ -97,11 +154,35 @@ function renderNotes() {
         ctxGrid.fill(); 
         ctxGrid.stroke();
         
-        // ハイライトと内部の線（ミュート時は暗く）
         ctxGrid.fillStyle = note.muted ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.3)'; 
         ctxGrid.fillRect(x + 2, y + heightPadding + 1, w - 4, 2);
         ctxGrid.fillStyle = note.muted ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.3)'; 
         ctxGrid.fillRect(x + 2, y + heightPadding + (h/2) - 1, w - 4, 2);
+    });
+}
+
+function renderDyingNotes() {
+    const heightPadding = 2;
+    STATE.dyingNotes.forEach(note => {
+        const x = tickToX(note.tick);
+        const y = pitchToY(note.pitch);
+        const w = note.duration * STATE.zoomX;
+        const h = STATE.zoomY;
+        
+        if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
+
+        // 塗りつぶしはせず（輪郭線のみ）、透明度を適用
+        ctxGrid.globalAlpha = note.opacity;
+        ctxGrid.strokeStyle = note.color; // 元のトラック色
+        ctxGrid.lineWidth = 2; // 少し太めにして視認性を上げる
+        
+        ctxGrid.beginPath();
+        if (ctxGrid.roundRect) ctxGrid.roundRect(x, y + heightPadding, w, h - heightPadding * 2, 3);
+        else ctxGrid.rect(x, y + heightPadding, w, h - heightPadding * 2);
+        ctxGrid.stroke();
+        
+        // 描画後は globalAlpha を必ず戻す
+        ctxGrid.globalAlpha = 1.0;
     });
 }
 
@@ -114,10 +195,10 @@ function renderSelectionRect() {
     const w = Math.abs(box.currentX - box.startX);
     const h = Math.abs(box.currentY - box.startY);
 
-    ctxGrid.fillStyle = 'rgba(255, 102, 0, 0.15)'; // 薄いオレンジ
+    ctxGrid.fillStyle = 'rgba(255, 255, 255, 0.1)'; 
     ctxGrid.fillRect(minX, minY, w, h);
     
-    ctxGrid.strokeStyle = 'rgba(255, 102, 0, 0.8)';
+    ctxGrid.strokeStyle = 'rgba(255, 255, 255, 0.5)';
     ctxGrid.lineWidth = 1;
     ctxGrid.strokeRect(minX, minY, w, h);
 }
