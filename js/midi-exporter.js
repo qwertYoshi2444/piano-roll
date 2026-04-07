@@ -1,9 +1,7 @@
 import { STATE } from './state.js';
-// CDNから midi-writer-js をインポート (ES Module版)
 import MidiWriter from 'https://cdn.jsdelivr.net/npm/midi-writer-js@2.1.4/build/index.browser.js';
 
 export function exportToMIDI() {
-    // トラックが1つもノートを持っていない場合はエクスポートしない
     const hasNotes = STATE.tracks.some(track => track.notes.length > 0);
     if (!hasNotes) {
         alert("ノートが配置されていません。");
@@ -12,36 +10,40 @@ export function exportToMIDI() {
 
     const midiTracks = [];
 
-    // 各トラックの変換
+    // 重要: midi-writer-js は内部的に 128 PPQ (デフォルト) を想定して時間を計算する。
+    // 私たちのアプリは 96 PPQ なので、Ticksをそのまま渡すと 96/128 倍の長さ(速いテンポ)になってしまう。
+    // そのため、書き込む前に時間を変換する係数を用意する。
+    const targetPPQ = 128; 
+    const tickMultiplier = targetPPQ / STATE.ppq;
+
+    // トラック0として「コンダクタートラック（メタデータ用）」を作成する
+    const conductorTrack = new MidiWriter.Track();
+    conductorTrack.setTempo(STATE.bpm); // GUIで設定したBPMを反映
+    conductorTrack.addTrackName('Conductor');
+    midiTracks.push(conductorTrack);
+
+    // 各ノートトラックの変換
     STATE.tracks.forEach((track, trackIndex) => {
-        // ミュートされていないノートのみを抽出
         const activeNotes = track.notes.filter(n => !n.muted);
-        
-        if (activeNotes.length === 0) return; // 空のトラックはスキップ
+        if (activeNotes.length === 0) return;
 
-        // midi-writer-js のトラックインスタンスを生成
         const midiTrack = new MidiWriter.Track();
-        
-        // トラック名を設定 (DAWに読み込んだ際に表示される)
         midiTrack.addTrackName(track.name);
-        
-        // トラックごとに異なるMIDIチャンネルを割り当てる (1〜16)
-        // ※ midi-writer-js はチャンネル番号を 1 からカウントします
-        const channel = trackIndex + 1;
+        const channel = trackIndex + 1; // 1-16
 
-        // ノートをTick順にソートする (MIDIファイルの仕様上、時間順の処理が安全)
         activeNotes.sort((a, b) => a.tick - b.tick);
 
         activeNotes.forEach(note => {
-            // midi-writer-js の NoteEvent を生成
-            // ※ pitch は数値 (0-127) をそのまま渡せます。
-            // ※ tick は絶対位置 (曲の先頭からのTick数) を指定します。ライブラリ内部でデルタタイムに自動変換してくれます。
+            // 長さと開始位置を midi-writer-js 用の解像度(128 PPQ)に補正
+            const adjustedDuration = Math.round(note.duration * tickMultiplier);
+            const adjustedTick = Math.round(note.tick * tickMultiplier);
+
             const noteEvent = new MidiWriter.NoteEvent({
                 pitch: [note.pitch],
-                duration: `T${note.duration}`, // Tick単位の長さを指定するフォーマット
-                tick: note.tick,
+                duration: `T${adjustedDuration}`, // 補正済みのTick単位長
+                tick: adjustedTick,               // 補正済みの開始絶対位置
                 channel: channel,
-                velocity: 100 // 今回はベロシティ固定
+                velocity: 100 
             });
 
             midiTrack.addEvent(noteEvent);
@@ -50,23 +52,15 @@ export function exportToMIDI() {
         midiTracks.push(midiTrack);
     });
 
-    if (midiTracks.length === 0) return;
+    if (midiTracks.length <= 1) return; // コンダクタートラックしか無い場合はエクスポートしない
 
-    // Writerインスタンスを生成（ここで分解能 PPQ を指定）
-    // 第二引数に null, 第三引数に PPQ を渡す仕様
+    // 補正したデータをライブラリに渡す。
     const write = new MidiWriter.Writer(midiTracks);
-    // ただし、MidiWriter.Writer のコンストラクタは現在PPQの直接指定をサポートしていない場合があるため、
-    // 生成されたファイルはデフォルトのPPQ（128等）になる可能性があります。
-    // （DAW側でインポート時にBPMや拍子が調整されます）
-
-    // Base64エンコードされたURIを取得
     const dataUri = write.dataUri();
     
-    // ダウンロード処理のトリガー
-    downloadURI(dataUri, 'fl_clone_project.mid');
+    downloadURI(dataUri, `fl_clone_${STATE.bpm}bpm.mid`);
 }
 
-// Base64 URI をファイルとしてダウンロードさせるヘルパー関数
 function downloadURI(uri, name) {
     const link = document.createElement("a");
     link.download = name;
