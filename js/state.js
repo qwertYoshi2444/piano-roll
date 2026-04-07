@@ -1,5 +1,37 @@
 import { startFadeOutAnimation } from './renderer.js';
 
+// FL StudioのMIDI Color Groupを意識した16色のパレット
+const TRACK_COLORS = [
+    { fill: '#66ff66', border: '#4dcc4d' }, // 1: 緑
+    { fill: '#ff6666', border: '#cc4d4d' }, // 2: 赤
+    { fill: '#6666ff', border: '#4d4dcc' }, // 3: 青
+    { fill: '#ffcc00', border: '#cca300' }, // 4: 黄
+    { fill: '#ff66ff', border: '#cc4dcc' }, // 5: マゼンタ
+    { fill: '#66ffff', border: '#4dcccc' }, // 6: シアン
+    { fill: '#ff9933', border: '#cc7a29' }, // 7: オレンジ
+    { fill: '#9933ff', border: '#7a29cc' }, // 8: 紫
+    { fill: '#a6a6a6', border: '#808080' }, // 9: ライトグレー
+    { fill: '#ff9999', border: '#cc7a7a' }, // 10: ピンク
+    { fill: '#99ff99', border: '#7acc7a' }, // 11: ライトグリーン
+    { fill: '#9999ff', border: '#7a7acc' }, // 12: ライトブルー
+    { fill: '#ffff99', border: '#cccc7a' }, // 13: ライトイエロー
+    { fill: '#cc6699', border: '#a3527a' }, // 14: ローズ
+    { fill: '#6699cc', border: '#527aa3' }, // 15: スチールブルー
+    { fill: '#99cc66', border: '#7aa352' }  // 16: オリーブ
+];
+
+// 16トラックを動的に生成
+const initialTracks = [];
+for (let i = 0; i < 16; i++) {
+    initialTracks.push({
+        id: i + 1,
+        name: `Track ${i + 1}`,
+        color: TRACK_COLORS[i].fill,
+        borderColor: TRACK_COLORS[i].border,
+        notes: []
+    });
+}
+
 export const STATE = {
     ppq: 96,
     zoomX: 0.5,
@@ -12,15 +44,9 @@ export const STATE = {
     lastDuration: 24,
     currentTool: 'draw',
     
-    // マルチトラックデータ構造
-    tracks: [
-        { id: 1, name: 'Track 1', color: '#ff6600', borderColor: '#cc5200', notes: [] }, // オレンジ
-        { id: 2, name: 'Track 2', color: '#00cc66', borderColor: '#00994d', notes: [] }, // グリーン
-        { id: 3, name: 'Track 3', color: '#3399ff', borderColor: '#2673cc', notes: [] }  // ブルー
-    ],
+    tracks: initialTracks,
     activeTrackId: 1,
     
-    // フェードアウト・アニメーション待機中のノート配列
     dyingNotes: [],
 
     selectionBox: {
@@ -31,7 +57,6 @@ export const STATE = {
         currentY: 0
     },
 
-    // 既存のコードを壊さずにマルチトラック対応するための Getter / Setter
     get notes() {
         return this.tracks.find(t => t.id === this.activeTrackId).notes;
     },
@@ -41,8 +66,6 @@ export const STATE = {
     }
 };
 
-// --- 状態操作のヘルパー関数 ---
-
 export function clearSelection() {
     STATE.notes.forEach(n => n.selected = false);
 }
@@ -51,22 +74,17 @@ export function getSelectedNotes() {
     return STATE.notes.filter(n => n.selected);
 }
 
-// 削除処理をここに集約し、フェードアウトアニメーションのトリガーとする
 export function deleteNote(note) {
     if (!note) return;
     
-    // アニメーション用に複製し、初期透明度を設定してキューに追加
     const track = STATE.tracks.find(t => t.id === STATE.activeTrackId);
     STATE.dyingNotes.push({ 
         ...note, 
         opacity: 1.0, 
-        color: track.color // 輪郭線の色として元のトラック色を保持
+        color: track.color
     });
     
-    // 実際のデータ配列からは削除
     STATE.notes = STATE.notes.filter(n => n.id !== note.id);
-    
-    // アニメーションループを開始
     startFadeOutAnimation();
 }
 

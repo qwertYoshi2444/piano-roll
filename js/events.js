@@ -1,9 +1,10 @@
 import { STATE, getSelectedNotes, deleteSelectedNotes } from './state.js';
 import { xToTick, getPitchAtY, getNoteAt } from './utils.js';
 import { renderAll } from './renderer.js';
-import { DrawTool, SelectTool, MuteTool, DeleteTool, editState, resetEditState } from './tools.js';
+import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.js';
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
+import { exportToMIDI } from './midi-exporter.js';
 
 let canvasGrid;
 let isMiddleDragging = false;
@@ -19,6 +20,14 @@ export function initEvents(gridCvs) {
     window.addEventListener('mouseup', onMouseUp);
     canvasGrid.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
+
+    // --- エクスポートボタンのイベント ---
+    const btnExport = document.getElementById('btn-export');
+    if (btnExport) {
+        btnExport.addEventListener('click', () => {
+            exportToMIDI();
+        });
+    }
 }
 
 function onMouseDown(e) {
@@ -83,7 +92,6 @@ function onMouseUp(e) {
     else if (STATE.currentTool === 'mute') MuteTool.onMouseUp();
     else if (STATE.currentTool === 'delete') DeleteTool.onMouseUp();
 
-    // マウスを離したらカーソルをリセット
     const rect = canvasGrid.getBoundingClientRect();
     const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
@@ -95,10 +103,7 @@ function onMouseUp(e) {
 function updateCursor(mouseX, mouseY, rawTick) {
     if (isMiddleDragging || editState.action) return;
     
-    if (STATE.currentTool !== 'draw') {
-        // Drawツール以外は固定カーソル（main.jsで設定）
-        return;
-    }
+    if (STATE.currentTool !== 'draw') return;
 
     const hoveredNote = getNoteAt(mouseX, mouseY);
     if (hoveredNote && Math.abs(rawTick - (hoveredNote.tick + hoveredNote.duration)) <= (8 / STATE.zoomX)) {
@@ -130,13 +135,11 @@ function onWheel(e) {
 }
 
 function onKeyDown(e) {
-    // ツール切り替えショートカット
     if (e.key.toLowerCase() === 'p') setTool('draw');
     if (e.key.toLowerCase() === 'e') setTool('select');
     if (e.key.toLowerCase() === 't') setTool('mute');
     if (e.key.toLowerCase() === 'd') setTool('delete');
 
-    // 選択・削除
     if (e.ctrlKey && e.key.toLowerCase() === 'a') {
         e.preventDefault();
         STATE.notes.forEach(n => n.selected = true);
@@ -147,12 +150,10 @@ function onKeyDown(e) {
         renderAll();
     }
 
-    // コピー＆ペースト
     if (e.ctrlKey && e.key.toLowerCase() === 'c') { copyNotes(); }
     if (e.ctrlKey && e.key.toLowerCase() === 'x') { cutNotes(); renderAll(); }
     if (e.ctrlKey && e.key.toLowerCase() === 'v') { pasteNotes(); renderAll(); }
     
-    // ピッチの移動 (オクターブ・半音)
     if (e.ctrlKey && e.key === 'ArrowUp') { shiftPitch(12); e.preventDefault(); }
     if (e.ctrlKey && e.key === 'ArrowDown') { shiftPitch(-12); e.preventDefault(); }
     if (e.shiftKey && e.key === 'ArrowUp') { shiftPitch(1); e.preventDefault(); }

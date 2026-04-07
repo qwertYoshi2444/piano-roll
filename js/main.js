@@ -39,18 +39,37 @@ function resizeCanvas() {
 }
 
 function setupToolbar() {
+    // --- トラック選択プルダウンの動的生成 ---
+    const trackSelect = document.getElementById('track-select');
+    STATE.tracks.forEach(track => {
+        const option = document.createElement('option');
+        option.value = track.id;
+        // トラック名に色を示す絵文字などを添えることも可能
+        option.textContent = track.name; 
+        trackSelect.appendChild(option);
+    });
+
+    // トラック切り替えイベント
+    trackSelect.addEventListener('change', e => {
+        clearSelection(); 
+        STATE.activeTrackId = parseInt(e.target.value, 10);
+        
+        // プルダウン自体の文字色を、選択中トラックの色に合わせる（視覚的フィードバック）
+        const activeTrack = STATE.tracks.find(t => t.id === STATE.activeTrackId);
+        trackSelect.style.color = activeTrack.color;
+        
+        renderAll();
+    });
+    
+    // 初期状態の色を設定
+    trackSelect.style.color = STATE.tracks[0].color;
+
+    // --- スナップ設定 ---
     document.getElementById('snap-select').addEventListener('change', e => {
         STATE.snap = parseInt(e.target.value, 10);
     });
-    
-    // --- トラック選択プルダウンの変更イベント ---
-    document.getElementById('track-select').addEventListener('change', e => {
-        // トラック切り替え時は、予期せぬ挙動を防ぐため現在の選択状態を解除する
-        clearSelection(); 
-        STATE.activeTrackId = parseInt(e.target.value, 10);
-        renderAll();
-    });
 
+    // --- ツールボタン ---
     const tools = ['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
