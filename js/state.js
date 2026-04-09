@@ -1,43 +1,54 @@
 import { startFadeOutAnimation } from './renderer.js';
 
-// 改良された16色のカラーパレット（ダークテーマで視認性の高い色）
 const TRACK_COLORS = [
-    { fill: '#55c555', border: '#339933' }, // 1: 緑
-    { fill: '#f75b5b', border: '#cc3333' }, // 2: 赤
-    { fill: '#5b85f7', border: '#3355cc' }, // 3: 青
-    { fill: '#e69900', border: '#b37700' }, // 4: オレンジ系イエロー（視認性向上）
-    { fill: '#d953d9', border: '#a626a6' }, // 5: マゼンタ
-    { fill: '#33cccc', border: '#1a9999' }, // 6: シアン
-    { fill: '#f28c28', border: '#bf600b' }, // 7: オレンジ
-    { fill: '#9955ff', border: '#6622cc' }, // 8: 紫
-    { fill: '#80b3ff', border: '#4d88ff' }, // 9: ライトブルー
-    { fill: '#ff80bf', border: '#cc4d88' }, // 10: ピンク
-    { fill: '#80ff80', border: '#4dcc4d' }, // 11: ライトグリーン
-    { fill: '#b380ff', border: '#884dff' }, // 12: ライトパープル
-    { fill: '#ffbf80', border: '#cc884d' }, // 13: ピーチ
-    { fill: '#cc527a', border: '#99264d' }, // 14: ローズ
-    { fill: '#52a3cc', border: '#267399' }, // 15: スチールブルー
-    { fill: '#a3cc52', border: '#739926' }  // 16: オリーブグリーン
+    { fill: '#55c555', border: '#339933' },
+    { fill: '#f75b5b', border: '#cc3333' },
+    { fill: '#5b85f7', border: '#3355cc' },
+    { fill: '#e69900', border: '#b37700' },
+    { fill: '#d953d9', border: '#a626a6' },
+    { fill: '#33cccc', border: '#1a9999' },
+    { fill: '#f28c28', border: '#bf600b' },
+    { fill: '#9955ff', border: '#6622cc' },
+    { fill: '#80b3ff', border: '#4d88ff' },
+    { fill: '#ff80bf', border: '#cc4d88' },
+    { fill: '#80ff80', border: '#4dcc4d' },
+    { fill: '#b380ff', border: '#884dff' },
+    { fill: '#ffbf80', border: '#cc884d' },
+    { fill: '#cc527a', border: '#99264d' },
+    { fill: '#52a3cc', border: '#267399' },
+    { fill: '#a3cc52', border: '#739926' } 
 ];
 
 const initialTracks = [];
 for (let i = 0; i < 16; i++) {
+    const waveTypes = ['sawtooth', 'square', 'triangle', 'sine'];
+    const defaultWave = waveTypes[i % 4];
+
     initialTracks.push({
         id: i + 1,
         name: `Track ${i + 1}`,
         color: TRACK_COLORS[i].fill,
         borderColor: TRACK_COLORS[i].border,
-        notes: []
+        notes: [],
+        waveform: defaultWave,
+        attack: 0.02,
+        decay: 0.3,
+        sustain: 0.4,
+        release: 0.3
     });
 }
 
 export const STATE = {
-    bpm: 120, // 追加: BPM
+    bpm: 120,
     ppq: 96,
     zoomX: 0.5,
     zoomY: 20,
     scrollTick: 0,
     scrollPitch: 84,
+    
+    // --- 追加: プレイヘッドと再生状態 ---
+    playheadTick: 0,
+    isPlaying: false,
     
     nextNoteId: 1,
     snap: 24,

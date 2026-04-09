@@ -21,6 +21,7 @@ export function renderAll() {
     renderNotes();
     renderDyingNotes();
     if (STATE.selectionBox.active) renderSelectionRect();
+    renderPlayheadGrid(); // 追加: グリッド上のプレイヘッド線
     renderKeyboard();
     renderTimeline();
 }
@@ -146,14 +147,10 @@ function renderNotes() {
         ctxGrid.fillStyle = note.muted ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.3)'; 
         ctxGrid.fillRect(x + 2, y + heightPadding + (h/2) - 1, w - 4, 2);
 
-        // --- 追加: ノート上に音名を描画 ---
-        // テキストを描画するのに十分な幅(約25px以上)と高さ(約10px以上)があるか確認
         if (w > 25 && h > 10 && !note.muted) {
-            ctxGrid.fillStyle = 'rgba(255, 255, 255, 0.8)'; // 白文字、少し透明
-            // ズームYに応じてフォントサイズを微調整（最大11px）
+            ctxGrid.fillStyle = 'rgba(255, 255, 255, 0.8)';
             const fontSize = Math.min(11, h - 4); 
             ctxGrid.font = `${fontSize}px sans-serif`;
-            // ノートの左端から少し余白を開け、縦は中央寄りに描画
             ctxGrid.fillText(getNoteName(note.pitch), x + 4, y + (h / 2) + (fontSize / 3));
         }
     });
@@ -199,6 +196,24 @@ function renderSelectionRect() {
     ctxGrid.strokeRect(minX, minY, w, h);
 }
 
+// --- 追加: グリッド上のプレイヘッド描画 ---
+function renderPlayheadGrid() {
+    const x = tickToX(STATE.playheadTick);
+    if (x >= 0 && x <= canvasGrid.width) {
+        ctxGrid.beginPath();
+        ctxGrid.strokeStyle = '#33cc33'; // FL Studio風の緑色
+        ctxGrid.lineWidth = 1.5;
+        ctxGrid.moveTo(x, 0);
+        ctxGrid.lineTo(x, canvasGrid.height);
+        ctxGrid.stroke();
+        
+        // 少し発光しているようなエフェクト
+        ctxGrid.strokeStyle = 'rgba(51, 204, 51, 0.3)';
+        ctxGrid.lineWidth = 4;
+        ctxGrid.stroke();
+    }
+}
+
 function renderKeyboard() {
     const w = canvasKeyboard.width, h = canvasKeyboard.height;
     ctxKeyboard.clearRect(0, 0, w, h);
@@ -226,9 +241,14 @@ function renderTimeline() {
     const w = canvasTimeline.width, h = canvasTimeline.height;
     ctxTimeline.clearRect(0, 0, w, h);
     let currentTick = Math.floor(STATE.scrollTick / (STATE.ppq * 4)) * (STATE.ppq * 4);
+    
+    // 背景
+    ctxTimeline.fillStyle = '#3b4043';
+    ctxTimeline.fillRect(0, 0, w, h);
+
+    // 目盛りと数字
     ctxTimeline.fillStyle = '#d0d0d0'; 
     ctxTimeline.font = '11px sans-serif';
-    
     while (currentTick <= xToTick(w)) {
         const x = tickToX(currentTick);
         if (x >= 0) {
@@ -240,5 +260,25 @@ function renderTimeline() {
             ctxTimeline.stroke();
         }
         currentTick += (STATE.ppq * 4);
+    }
+
+    // --- 追加: タイムライン上のプレイヘッドマーカー ---
+    const phX = tickToX(STATE.playheadTick);
+    if (phX >= 0 && phX <= w) {
+        // 逆三角形を描画
+        ctxTimeline.fillStyle = '#33cc33';
+        ctxTimeline.beginPath();
+        ctxTimeline.moveTo(phX - 6, 0);
+        ctxTimeline.lineTo(phX + 6, 0);
+        ctxTimeline.lineTo(phX, 12);
+        ctxTimeline.fill();
+        
+        // 下に伸びる線
+        ctxTimeline.beginPath();
+        ctxTimeline.strokeStyle = '#33cc33';
+        ctxTimeline.lineWidth = 1.5;
+        ctxTimeline.moveTo(phX, 12);
+        ctxTimeline.lineTo(phX, h);
+        ctxTimeline.stroke();
     }
 }

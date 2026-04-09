@@ -1,19 +1,28 @@
 import { STATE, getSelectedNotes, deleteSelectedNotes } from './state.js';
-import { xToTick, getPitchAtY, getNoteAt } from './utils.js';
+import { xToTick, getPitchAtY, getNoteAt, snapTick } from './utils.js';
 import { renderAll } from './renderer.js';
 import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.js';
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
+import { initAudio, stopPreview, playPreview } from './audio-engine.js';
 
 let canvasGrid;
+let canvasTimeline;
 let isMiddleDragging = false;
+let isTimelineDragging = false; // 追加: タイムラインのドラッグ状態
 let lastMouseX = 0;
 let lastMouseY = 0;
 
 export function initEvents(gridCvs) {
     canvasGrid = gridCvs;
+    canvasTimeline = document.getElementById('timeline-canvas');
+    const keyCvs = document.getElementById('keyboard-canvas');
 
+    document.body.addEventListener('mousedown', initAudio, { once: true });
+    document.body.addEventListener('keydown', initAudio, { once: true });
+
+    // グリッドイベント
     canvasGrid.addEventListener('contextmenu', e => e.preventDefault());
     canvasGrid.addEventListener('mousedown', onMouseDown);
     window.addEventListener('mousemove', onMouseMove);
@@ -21,13 +30,34 @@ export function initEvents(gridCvs) {
     canvasGrid.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
 
-    // --- エクスポートボタンのイベント ---
+    // 鍵盤イベント
+    keyCvs.addEventListener('mousedown', (e) => {
+        const rect = keyCvs.getBoundingClientRect();
+        const mouseY = e.clientY - rect.top;
+        const pitch = getPitchAtY(mouseY);
+        if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
+    });
+    
+    // --- 追加: タイムラインイベント (プレイヘッドの移動) ---
+    canvasTimeline.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // 左クリックのみ
+        isTimelineDragging = true;
+        updatePlayheadFromMouse(e);
+    });
+
     const btnExport = document.getElementById('btn-export');
-    if (btnExport) {
-        btnExport.addEventListener('click', () => {
-            exportToMIDI();
-        });
-    }
+    if (btnExport) btnExport.addEventListener('click', exportToMIDI);
+}
+
+// タイムラインクリック時のプレイヘッド更新処理
+function updatePlayheadFromMouse(e) {
+    const rect = canvasTimeline.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const rawTick = xToTick(mouseX);
+    
+    // スナップを考慮してプレイヘッド位置を決定 (Altキーでスナップ無視)
+    STATE.playheadTick = Math.max(0, snapTick(rawTick, e.altKey));
+    renderAll();
 }
 
 function onMouseDown(e) {
@@ -54,6 +84,12 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
+    // --- 追加: タイムラインドラッグ中のプレイヘッド移動 ---
+    if (isTimelineDragging) {
+        updatePlayheadFromMouse(e);
+        return;
+    }
+
     if (isMiddleDragging) {
         const dx = e.clientX - lastMouseX;
         const dy = e.clientY - lastMouseY;
@@ -81,6 +117,14 @@ function onMouseMove(e) {
 }
 
 function onMouseUp(e) {
+    stopPreview();
+
+    // タイムラインのドラッグ解除
+    if (isTimelineDragging) {
+        isTimelineDragging = false;
+        return;
+    }
+
     if (e.button === 1) {
         isMiddleDragging = false;
         document.body.style.cursor = 'default';
@@ -101,8 +145,7 @@ function onMouseUp(e) {
 }
 
 function updateCursor(mouseX, mouseY, rawTick) {
-    if (isMiddleDragging || editState.action) return;
-    
+    if (isMiddleDragging || editState.action || isTimelineDragging) return;
     if (STATE.currentTool !== 'draw') return;
 
     const hoveredNote = getNoteAt(mouseX, mouseY);
@@ -163,8 +206,14 @@ function onKeyDown(e) {
 function shiftPitch(amount) {
     const selected = getSelectedNotes();
     if (selected.length === 0) return;
+    const activeTrack = STATE.activeTrackId;
+    
     selected.forEach(n => {
         n.pitch = Math.min(127, Math.max(0, n.pitch + amount));
     });
+    
+    playPreview(selected[0].pitch, activeTrack);
+    setTimeout(() => stopPreview(), 200);
+
     renderAll();
 }

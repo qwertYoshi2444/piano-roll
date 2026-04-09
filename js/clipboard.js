@@ -19,16 +19,17 @@ export function copyNotes() {
 
 export function cutNotes() {
     copyNotes();
-    // 単なるフィルター処理から、アニメーション付きの削除関数に変更
     deleteSelectedNotes(); 
 }
 
 export function pasteNotes() {
     if (clipboardData.length === 0) return;
 
-    let pasteBaseTick = STATE.scrollTick;
+    // --- 変更: ペーストの基準位置を画面左端からプレイヘッド位置に変更 ---
+    let pasteBaseTick = STATE.playheadTick;
     if (STATE.snap > 0) {
-        pasteBaseTick = Math.ceil(pasteBaseTick / STATE.snap) * STATE.snap;
+        // スナップ設定に合わせて丸める
+        pasteBaseTick = Math.floor(pasteBaseTick / STATE.snap) * STATE.snap;
     }
 
     clearSelection();
