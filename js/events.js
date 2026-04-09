@@ -6,6 +6,8 @@ import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
 import { initAudio, stopPreview, playPreview } from './audio-engine.js';
+// 追加: プレイバック機能のインポート
+import { togglePlayback, stopPlayback } from './playback.js';
 
 let canvasGrid = null;
 let canvasTimeline = null;
@@ -17,9 +19,8 @@ let lastMouseY = 0;
 export function initEvents(gridCvs) {
     canvasGrid = gridCvs;
     canvasTimeline = document.getElementById('timeline-canvas');
-    const keyCvs = document.getElementById('keyboard-canvas'); // 復活
+    const keyCvs = document.getElementById('keyboard-canvas');
 
-    // スマホでの予期せぬタップによるスクロールを防ぐため、passive: falseを指定可能にする
     document.body.addEventListener('mousedown', initAudio, { once: true });
     document.body.addEventListener('touchstart', initAudio, { once: true, passive: true });
     document.body.addEventListener('keydown', initAudio, { once: true });
@@ -34,7 +35,6 @@ export function initEvents(gridCvs) {
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
 
-    // --- 復活: 鍵盤クリック時の発音イベント ---
     if (keyCvs) {
         keyCvs.addEventListener('mousedown', (e) => {
             const rect = keyCvs.getBoundingClientRect();
@@ -49,11 +49,17 @@ export function initEvents(gridCvs) {
             if (e.button !== 0) return; 
             isTimelineDragging = true;
             updatePlayheadFromMouse(e);
+            
+            // 手動でシークした際は再生を止めるか続けるか。今回はそのまま（Live挙動）
         });
     }
 
     const btnExport = document.getElementById('btn-export');
     if (btnExport) btnExport.addEventListener('click', exportToMIDI);
+    
+    // 追加: 再生ボタンのクリックイベント
+    const btnPlay = document.getElementById('btn-play');
+    if (btnPlay) btnPlay.addEventListener('click', togglePlayback);
 }
 
 function updatePlayheadFromMouse(e) {
@@ -177,6 +183,8 @@ function onWheel(e) {
     if (e.ctrlKey) {
         STATE.zoomX *= e.deltaY > 0 ? 0.8 : 1.25;
         if (STATE.zoomX < 0.05) STATE.zoomX = 0.05; if (STATE.zoomX > 10) STATE.zoomX = 10;
+        
+        // ズーム中心をプレイヘッドにするかマウスにするか。今回はマウス優先
         STATE.scrollTick = Math.max(0, targetTick - (mouseX / STATE.zoomX));
     } else if (e.altKey) {
         STATE.zoomY *= e.deltaY > 0 ? 0.9 : 1.1;
@@ -189,8 +197,14 @@ function onWheel(e) {
 }
 
 function onKeyDown(e) {
-    // モーダル等でのテキスト入力中ならショートカットを無視
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
+    // --- 追加: Spaceキーで再生/停止をトグル ---
+    if (e.code === 'Space') {
+        e.preventDefault(); // スペースキーでの画面スクロールを防ぐ
+        togglePlayback();
+        return;
+    }
 
     if (e.key.toLowerCase() === 'p') setTool('draw');
     if (e.key.toLowerCase() === 'e') setTool('select');
