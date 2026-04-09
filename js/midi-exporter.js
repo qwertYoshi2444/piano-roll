@@ -11,63 +11,83 @@ export function exportToMIDI() {
 
     const midiTracks =[];
 
-    // ライブラリの想定PPQ(128)とアプリ内PPQ(96)の変換係数
+    // ライブラリの固定PPQ(128)に合わせてアプリのPPQ(96)を変換する係数
     const targetPPQ = 128; 
     const tickMultiplier = targetPPQ / STATE.ppq;
 
     // 各トラックの変換
     STATE.tracks.forEach((track, trackIndex) => {
-        // ミュートされていないノートのみを抽出
         const activeNotes = track.notes.filter(n => !n.muted);
         if (activeNotes.length === 0) return;
 
         const midiTrack = new MidiWriter.Track();
         
-        // DAWが確実にメタデータを読み取れるよう、各楽器トラックに直接BPMと拍子を書き込む
+        // DAWが確実にメタデータを読み取れるよう、各トラックにBPMと拍子を書き込む
         midiTrack.addTrackName(track.name);
         midiTrack.setTempo(STATE.bpm);
         midiTrack.setTimeSignature(4, 4);
         
         const channel = trackIndex + 1; // MIDIチャンネル 1-16
 
-        // 1. ノートを開始位置(tick)の昇順でソートする
-        activeNotes.sort((a, b) => a.tick - b.tick);
+        // --- 確実な解決法: イベントの低レベル分解 ---
+        const events =[];
 
-        // 2. 解決法: 和音（同じtick、同じdurationのノート）を1つのグループにまとめる
-        const groupedNotes =[];
-        
+        // 1. すべてのノートを「発音(On)」と「消音(Off)」の2つの独立したイベントに分解
         activeNotes.forEach(note => {
-            // 既に同じタイミング・長さで登録されたグループがあるか探す
-            const existingGroup = groupedNotes.find(g => g.tick === note.tick && g.duration === note.duration);
-            
-            if (existingGroup) {
-                // 存在すれば、そのグループのピッチ配列に音を追加（和音化）
-                existingGroup.pitches.push(note.pitch);
-            } else {
-                // 存在しなければ新しいグループを作成
-                groupedNotes.push({
-                    tick: note.tick,
-                    duration: note.duration,
-                    pitches: [note.pitch]
-                });
-            }
-        });
+            const startTick = Math.round(note.tick * tickMultiplier);
+            const endTick = Math.round((note.tick + note.duration) * tickMultiplier);
 
-        // 3. グループ化されたノート群をライブラリに渡す
-        groupedNotes.forEach(group => {
-            // 長さと開始位置を 128 PPQ 用に補正
-            const adjustedDuration = Math.round(group.duration * tickMultiplier);
-            const adjustedTick = Math.round(group.tick * tickMultiplier);
-
-            const noteEvent = new MidiWriter.NoteEvent({
-                pitch: group.pitches,             // 配列で渡すことで、ライブラリが1つの和音イベントとして正確に処理する
-                duration: `T${adjustedDuration}`, // 補正済みのTick単位長
-                tick: adjustedTick,               // 補正済みの開始絶対位置
-                channel: channel,
-                velocity: 100 
+            events.push({
+                type: 'on',
+                pitch: note.pitch,
+                tick: startTick
             });
 
-            midiTrack.addEvent(noteEvent);
+            events.push({
+                type: 'off',
+                pitch: note.pitch,
+                tick: endTick
+            });
+        });
+
+        // 2. 曲の先頭からの絶対時間(tick)でイベントを昇順ソート
+        events.sort((a, b) => {
+            if (a.tick !== b.tick) {
+                return a.tick - b.tick; // 時間が早い順
+            }
+            // ★重要: 全く同じタイミングにOnとOffが重なった場合は、
+            // 必ず「Offを先」に処理することで音が詰まるバグを防ぐ
+            if (a.type === 'off' && b.type === 'on') return -1;
+            if (a.type === 'on' && b.type === 'off') return 1;
+            return 0;
+        });
+
+        // 3. 直前のイベントからの差分（デルタタイム）を計算しながら順番に書き込む
+        let currentTick = 0;
+        events.forEach(ev => {
+            const deltaTick = ev.tick - currentTick;
+            const waitTime = `T${deltaTick}`; // ライブラリ指定の Tick 待機フォーマット
+
+            if (ev.type === 'on') {
+                const noteOn = new MidiWriter.NoteOnEvent({
+                    pitch: [ev.pitch],
+                    wait: waitTime,
+                    channel: channel,
+                    velocity: 100 // 音量
+                });
+                midiTrack.addEvent(noteOn);
+            } else {
+                const noteOff = new MidiWriter.NoteOffEvent({
+                    pitch: [ev.pitch],
+                    wait: waitTime,
+                    channel: channel,
+                    velocity: 0
+                });
+                midiTrack.addEvent(noteOff);
+            }
+
+            // 現在の時間を更新
+            currentTick = ev.tick;
         });
 
         midiTracks.push(midiTrack);
@@ -75,7 +95,7 @@ export function exportToMIDI() {
 
     if (midiTracks.length === 0) return;
 
-    // 補正したデータをWriterに渡し、Base64URIを生成
+    // データ生成とBase64化
     const write = new MidiWriter.Writer(midiTracks);
     const dataUri = write.dataUri();
     
