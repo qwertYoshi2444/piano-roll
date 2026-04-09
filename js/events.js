@@ -7,8 +7,9 @@ import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
 import { initAudio, stopPreview, playPreview } from './audio-engine.js';
 
-let canvasGrid;
-let canvasTimeline;
+// モジュールレベルでの変数宣言を確実に行う
+let canvasGrid = null;
+let canvasTimeline = null;
 let isMiddleDragging = false;
 let isTimelineDragging = false; 
 let lastMouseX = 0;
@@ -22,34 +23,31 @@ export function initEvents(gridCvs) {
     document.body.addEventListener('mousedown', initAudio, { once: true });
     document.body.addEventListener('keydown', initAudio, { once: true });
 
-    // グリッドイベント
-    canvasGrid.addEventListener('contextmenu', e => e.preventDefault());
-    canvasGrid.addEventListener('mousedown', onMouseDown);
+    if (canvasGrid) {
+        canvasGrid.addEventListener('contextmenu', e => e.preventDefault());
+        canvasGrid.addEventListener('mousedown', onMouseDown);
+        canvasGrid.addEventListener('wheel', onWheel, { passive: false });
+    }
     
-    // ウィンドウ全体でマウスムーブ・アップを監視（ドラッグ中のCanvas外はみ出し対策）
+    // ウィンドウ全体でマウス操作を監視
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-    
-    canvasGrid.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
 
-    // 鍵盤イベント
-    keyCvs.addEventListener('mousedown', (e) => {
-        const rect = keyCvs.getBoundingClientRect();
-        const mouseY = e.clientY - rect.top;
-        const pitch = getPitchAtY(mouseY);
-        if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
-    });
+    if (keyCvs) {
+        keyCvs.addEventListener('mousedown', (e) => {
+            const rect = keyCvs.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            const pitch = getPitchAtY(mouseY);
+            if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
+        });
+    }
     
-    // --- タイムラインイベント (プレイヘッドの移動) ---
     if (canvasTimeline) {
         canvasTimeline.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return; // 左クリックのみ
+            if (e.button !== 0) return; 
             isTimelineDragging = true;
             updatePlayheadFromMouse(e);
-            
-            // タイムラインをクリックした際、フォーカスをCanvasに戻す（キーボード操作を維持するため）
-            canvasGrid.focus();
         });
     }
 
@@ -57,18 +55,24 @@ export function initEvents(gridCvs) {
     if (btnExport) btnExport.addEventListener('click', exportToMIDI);
 }
 
-// タイムラインクリック時のプレイヘッド更新処理
 function updatePlayheadFromMouse(e) {
     if (!canvasTimeline) return;
     const rect = canvasTimeline.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const rawTick = xToTick(mouseX);
-    
     STATE.playheadTick = Math.max(0, snapTick(rawTick, e.altKey));
     renderAll();
 }
 
 function onMouseDown(e) {
+    if (!canvasGrid) return;
+    
+    // Canvas要素内でのクリックか判定
+    const rect = canvasGrid.getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+        return; 
+    }
+
     lastMouseX = e.clientX; 
     lastMouseY = e.clientY;
 
@@ -79,7 +83,6 @@ function onMouseDown(e) {
         return;
     }
 
-    const rect = canvasGrid.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
 
@@ -92,7 +95,6 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-    // タイムラインドラッグ中のプレイヘッド移動
     if (isTimelineDragging) {
         updatePlayheadFromMouse(e);
         return;
@@ -109,7 +111,7 @@ function onMouseMove(e) {
         return;
     }
 
-    // 現在のマウスがCanvas上にあるかに関わらず、イベント元から計算
+    if (!canvasGrid) return;
     const rect = canvasGrid.getBoundingClientRect();
     const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
@@ -128,7 +130,6 @@ function onMouseMove(e) {
 function onMouseUp(e) {
     stopPreview();
 
-    // タイムラインのドラッグ解除
     if (isTimelineDragging) {
         isTimelineDragging = false;
         return;
@@ -145,17 +146,19 @@ function onMouseUp(e) {
     else if (STATE.currentTool === 'mute') MuteTool.onMouseUp();
     else if (STATE.currentTool === 'delete') DeleteTool.onMouseUp();
 
-    const rect = canvasGrid.getBoundingClientRect();
-    const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-    updateCursor(mouseX, mouseY, xToTick(mouseX));
+    if (canvasGrid) {
+        const rect = canvasGrid.getBoundingClientRect();
+        const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+        const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+        updateCursor(mouseX, mouseY, xToTick(mouseX));
+    }
     
     renderAll();
 }
 
 function updateCursor(mouseX, mouseY, rawTick) {
     if (isMiddleDragging || editState.action || isTimelineDragging) return;
-    if (STATE.currentTool !== 'draw') return;
+    if (STATE.currentTool !== 'draw' || !canvasGrid) return;
 
     const hoveredNote = getNoteAt(mouseX, mouseY);
     if (hoveredNote && Math.abs(rawTick - (hoveredNote.tick + hoveredNote.duration)) <= (8 / STATE.zoomX)) {
@@ -202,7 +205,7 @@ function onKeyDown(e) {
         renderAll();
     }
 
-    if (e.ctrlKey && e.key.toLowerCase() === 'c') { copyNotes(); }
+    if (e.ctrlKey && e.key.toLowerCase() === 'c') copyNotes();
     if (e.ctrlKey && e.key.toLowerCase() === 'x') { cutNotes(); renderAll(); }
     if (e.ctrlKey && e.key.toLowerCase() === 'v') { pasteNotes(); renderAll(); }
     
@@ -223,6 +226,5 @@ function shiftPitch(amount) {
     
     playPreview(selected[0].pitch, activeTrack);
     setTimeout(() => stopPreview(), 200);
-
     renderAll();
 }

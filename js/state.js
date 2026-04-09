@@ -46,7 +46,7 @@ export const STATE = {
     scrollTick: 0,
     scrollPitch: 84,
     
-    // --- 追加: プレイヘッドと再生状態 ---
+    // プレイヘッドと再生状態
     playheadTick: 0,
     isPlaying: false,
     
@@ -57,7 +57,6 @@ export const STATE = {
     
     tracks: initialTracks,
     activeTrackId: 1,
-    
     dyingNotes: [],
 
     selectionBox: {
@@ -69,7 +68,8 @@ export const STATE = {
     },
 
     get notes() {
-        return this.tracks.find(t => t.id === this.activeTrackId).notes;
+        const track = this.tracks.find(t => t.id === this.activeTrackId);
+        return track ? track.notes : [];
     },
     set notes(newNotes) {
         const track = this.tracks.find(t => t.id === this.activeTrackId);
@@ -88,7 +88,9 @@ export function getSelectedNotes() {
 export function deleteNote(note) {
     if (!note) return;
     const track = STATE.tracks.find(t => t.id === STATE.activeTrackId);
-    STATE.dyingNotes.push({ ...note, opacity: 1.0, color: track.color });
+    if (track) {
+        STATE.dyingNotes.push({ ...note, opacity: 1.0, color: track.color });
+    }
     STATE.notes = STATE.notes.filter(n => n.id !== note.id);
     startFadeOutAnimation();
 }
@@ -96,9 +98,9 @@ export function deleteNote(note) {
 export function deleteSelectedNotes() {
     const selected = getSelectedNotes();
     if (selected.length === 0) return;
+    const track = STATE.tracks.find(t => t.id === STATE.activeTrackId);
     selected.forEach(note => {
-        const track = STATE.tracks.find(t => t.id === STATE.activeTrackId);
-        STATE.dyingNotes.push({ ...note, opacity: 1.0, color: track.color });
+        if (track) STATE.dyingNotes.push({ ...note, opacity: 1.0, color: track.color });
     });
     STATE.notes = STATE.notes.filter(n => !n.selected);
     startFadeOutAnimation();

@@ -15,14 +15,19 @@ export function initRenderer(gridCvs, keyCvs, timeCvs) {
 }
 
 export function renderAll() {
+    // 描画キャンバスが存在しない場合は処理をスキップ（初期化エラー回避）
+    if (!ctxGrid || !ctxKeyboard || !ctxTimeline) return;
+
     renderGrid();
-    renderSelectionRect();
     renderGhostNotes();
     renderNotes();
     renderDyingNotes();
-    if (STATE.selectionBox.active) renderSelectionRect();
     
-    // プレイヘッドは一番手前に描画する
+    if (STATE.selectionBox.active) {
+        renderSelectionRect();
+    }
+    
+    // プレイヘッドは必ず最前面（他すべてを描画した後）に描画する
     renderPlayheadGrid(); 
     
     renderKeyboard();
@@ -40,7 +45,9 @@ function animateFadeOut() {
         if (note.opacity > 0) stillAnimating = true;
     });
     STATE.dyingNotes = STATE.dyingNotes.filter(note => note.opacity > 0);
+    
     renderAll();
+    
     if (stillAnimating) {
         animationFrameId = requestAnimationFrame(animateFadeOut);
     } else {
@@ -55,9 +62,11 @@ function renderGrid() {
     const topPitch = STATE.scrollPitch + 1;
     const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
 
+    // 背景の横帯（鍵盤色）
     for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
         if (pitch < 0 || pitch > 127) continue;
         const y = pitchToY(pitch);
+        
         ctxGrid.fillStyle = isBlackKey(pitch) ? '#1a1c1d' : '#222527';
         ctxGrid.fillRect(0, y, w, STATE.zoomY);
         
@@ -69,6 +78,7 @@ function renderGrid() {
         ctxGrid.stroke();
     }
 
+    // 縦のグリッド線
     const snapTickVal = STATE.ppq / 4; 
     let currentTick = Math.floor(STATE.scrollTick / snapTickVal) * snapTickVal;
     
@@ -79,7 +89,7 @@ function renderGrid() {
         else if (currentTick % STATE.ppq === 0) ctxGrid.strokeStyle = '#3a3a3a';
         else ctxGrid.strokeStyle = '#2a2a2a';
         
-        if (x >= 0) { 
+        if (x >= 0 && x <= w) { 
             ctxGrid.moveTo(x, 0); 
             ctxGrid.lineTo(x, h); 
         }
@@ -115,6 +125,7 @@ function renderGhostNotes() {
 function renderNotes() {
     const heightPadding = 2;
     const activeTrack = STATE.tracks.find(t => t.id === STATE.activeTrackId);
+    if (!activeTrack) return;
     
     STATE.notes.forEach(note => {
         const x = tickToX(note.tick);
@@ -178,7 +189,7 @@ function renderDyingNotes() {
         else ctxGrid.rect(x, y + heightPadding, w, h - heightPadding * 2);
         ctxGrid.stroke();
         
-        ctxGrid.globalAlpha = 1.0;
+        ctxGrid.globalAlpha = 1.0; // 必ず元に戻す
     });
 }
 
@@ -197,23 +208,23 @@ function renderSelectionRect() {
     ctxGrid.strokeRect(minX, minY, w, h);
 }
 
-// --- 修正: グリッド上のプレイヘッド描画 ---
+// プレイヘッド（再生バー）をメイングリッドに描画
 function renderPlayheadGrid() {
     const x = tickToX(STATE.playheadTick);
-    // 画面外の場合は描画しない（少し余裕を持たせる）
+    // 画面内に少しでも入っている場合のみ描画
     if (x >= -5 && x <= canvasGrid.width + 5) {
-        // メインの濃い緑線
+        // メインの線
         ctxGrid.beginPath();
-        ctxGrid.strokeStyle = '#33ff33'; // より明るい緑に
-        ctxGrid.lineWidth = 2.0;         // 少し太く
+        ctxGrid.strokeStyle = '#33ff33'; // FL Studio風の明るい緑
+        ctxGrid.lineWidth = 2.0;
         ctxGrid.moveTo(x, 0);
         ctxGrid.lineTo(x, canvasGrid.height);
         ctxGrid.stroke();
         
-        // 発光エフェクト（独立したパスとして描画）
+        // 発光エフェクト（太くて薄い線）
         ctxGrid.beginPath();
         ctxGrid.strokeStyle = 'rgba(51, 255, 51, 0.15)';
-        ctxGrid.lineWidth = 6;
+        ctxGrid.lineWidth = 6.0;
         ctxGrid.moveTo(x, 0);
         ctxGrid.lineTo(x, canvasGrid.height);
         ctxGrid.stroke();
@@ -247,17 +258,16 @@ function renderTimeline() {
     const w = canvasTimeline.width, h = canvasTimeline.height;
     ctxTimeline.clearRect(0, 0, w, h);
     
-    // 背景
     ctxTimeline.fillStyle = '#3b4043';
     ctxTimeline.fillRect(0, 0, w, h);
 
-    // 目盛りと数字
     let currentTick = Math.floor(STATE.scrollTick / (STATE.ppq * 4)) * (STATE.ppq * 4);
     ctxTimeline.fillStyle = '#d0d0d0'; 
     ctxTimeline.font = '11px sans-serif';
+    
     while (currentTick <= xToTick(w)) {
         const x = tickToX(currentTick);
-        if (x >= 0) {
+        if (x >= 0 && x <= w) {
             ctxTimeline.fillText((currentTick / (STATE.ppq * 4)) + 1, x + 5, 20);
             ctxTimeline.beginPath(); 
             ctxTimeline.strokeStyle = '#666'; 
@@ -268,18 +278,16 @@ function renderTimeline() {
         currentTick += (STATE.ppq * 4);
     }
 
-    // --- 修正: タイムライン上のプレイヘッドマーカー ---
+    // タイムライン上のプレイヘッド（逆三角形のマーカー）
     const phX = tickToX(STATE.playheadTick);
     if (phX >= -10 && phX <= w + 10) {
-        // 逆三角形を描画
-        ctxTimeline.fillStyle = '#33ff33'; // より明るい緑に
+        ctxTimeline.fillStyle = '#33ff33'; 
         ctxTimeline.beginPath();
         ctxTimeline.moveTo(phX - 6, 0);
         ctxTimeline.lineTo(phX + 6, 0);
         ctxTimeline.lineTo(phX, 12);
         ctxTimeline.fill();
         
-        // 下に伸びる線
         ctxTimeline.beginPath();
         ctxTimeline.strokeStyle = '#33ff33';
         ctxTimeline.lineWidth = 2.0;

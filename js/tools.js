@@ -1,5 +1,7 @@
 import { STATE, clearSelection, deleteNote } from './state.js';
 import { getNoteAt, xToTick, getPitchAtY, snapTick, tickToX, pitchToY } from './utils.js';
+// 追加: オーディオエンジンのインポート
+import { playPreview } from './audio-engine.js';
 
 export const editState = {
     action: null,
@@ -7,7 +9,8 @@ export const editState = {
     startMouseTick: 0,
     startMousePitch: 0,
     originalNotesData:[],
-    processedNoteIds: new Set()
+    processedNoteIds: new Set(),
+    lastPreviewPitch: -1 // 連続発音を防ぐためのトラッキング
 };
 
 function updateSelectionBox() {
@@ -37,7 +40,6 @@ export const DrawTool = {
 
         let clickedNote = getNoteAt(mouseX, mouseY);
 
-        // [Ctrl + 左ドラッグ] 矩形選択
         if (e.ctrlKey && e.button === 0) {
             editState.action = 'select';
             STATE.selectionBox.active = true;
@@ -49,9 +51,14 @@ export const DrawTool = {
             return;
         }
 
-        // [左クリック]
         if (e.button === 0) {
             if (clickedNote) {
+                // 既存ノートをクリックした時、その音を鳴らす（ミュートでなければ）
+                if (!clickedNote.muted) {
+                    playPreview(clickedNote.pitch, STATE.activeTrackId);
+                    editState.lastPreviewPitch = clickedNote.pitch;
+                }
+
                 if (e.shiftKey) {
                     let notesToCopy = STATE.notes.filter(n => n.selected);
                     if (!clickedNote.selected) {
@@ -87,6 +94,10 @@ export const DrawTool = {
                     note: n, originalTick: n.tick, originalPitch: n.pitch, originalDuration: n.duration
                 }));
             } else {
+                // 新規ノートを作成した時、その音を鳴らす
+                playPreview(pitch, STATE.activeTrackId);
+                editState.lastPreviewPitch = pitch;
+
                 clearSelection();
                 editState.action = 'create';
                 const snappedTick = snapTick(rawTick, e.altKey);
@@ -98,12 +109,9 @@ export const DrawTool = {
                 editState.targetNote = newNote;
             }
         } 
-        // [右クリック] (削除)
         else if (e.button === 2) {
             editState.action = 'delete';
-            if (clickedNote) {
-                deleteNote(clickedNote); // アニメーション付き削除関数に変更
-            }
+            if (clickedNote) deleteNote(clickedNote);
         }
     },
 
@@ -117,13 +125,10 @@ export const DrawTool = {
 
         if (editState.action === 'resize') {
             const newRightEdge = snapTick(rawTick, e.altKey);
-            
             const targetOriginalData = editState.originalNotesData.find(i => i.note === editState.targetNote);
             if (!targetOriginalData) return;
-            
             const originalRightEdge = targetOriginalData.originalTick + targetOriginalData.originalDuration;
             const deltaTick = newRightEdge - originalRightEdge;
-            
             editState.originalNotesData.forEach(item => {
                 let newDuration = item.originalDuration + deltaTick;
                 if (newDuration < 1) newDuration = 1; 
@@ -140,23 +145,41 @@ export const DrawTool = {
             const snappedTargetTick = snapTick(targetOriginalData.originalTick + tickDiff, e.altKey);
             const actualTickDiff = snappedTargetTick - targetOriginalData.originalTick;
 
+            let targetNewPitch = -1; // ターゲットノートの新しいピッチを追跡
+
             editState.originalNotesData.forEach(item => {
                 let newTick = item.originalTick + actualTickDiff;
                 let newPitch = item.originalPitch + pitchDiff;
                 item.note.tick = Math.max(0, newTick);
                 item.note.pitch = Math.min(127, Math.max(0, newPitch));
+                
+                if (item.note === editState.targetNote) {
+                    targetNewPitch = item.note.pitch;
+                }
             });
+
+            // ターゲットノートのピッチが前回から変わった瞬間だけ、新しい音を鳴らす
+            if (targetNewPitch !== -1 && targetNewPitch !== editState.lastPreviewPitch && !editState.targetNote.muted) {
+                playPreview(targetNewPitch, STATE.activeTrackId);
+                editState.lastPreviewPitch = targetNewPitch;
+            }
 
         } else if (editState.action === 'create' && editState.targetNote) {
              const snappedTick = snapTick(rawTick, e.altKey);
+             const boundedPitch = Math.min(127, Math.max(0, pitch));
+             
              editState.targetNote.tick = Math.max(0, snappedTick);
-             editState.targetNote.pitch = Math.min(127, Math.max(0, pitch));
+             editState.targetNote.pitch = boundedPitch;
+
+             // 新規作成ドラッグ中にピッチが変わった時も鳴らし直す
+             if (boundedPitch !== editState.lastPreviewPitch) {
+                 playPreview(boundedPitch, STATE.activeTrackId);
+                 editState.lastPreviewPitch = boundedPitch;
+             }
 
         } else if (editState.action === 'delete') {
             const hoveredNote = getNoteAt(mouseX, mouseY);
-            if (hoveredNote) {
-                deleteNote(hoveredNote); // アニメーション付き削除関数に変更
-            }
+            if (hoveredNote) deleteNote(hoveredNote);
         }
     },
 
@@ -169,6 +192,8 @@ export const DrawTool = {
         resetEditState();
     }
 };
+
+// ... SelectTool, MuteTool, DeleteTool は変更なしのため省略せずに記載します ...
 
 export const SelectTool = {
     onMouseDown: (e, mouseX, mouseY) => {
@@ -230,12 +255,13 @@ export const DeleteTool = {
 
 function deleteAt(x, y) {
     const note = getNoteAt(x, y);
-    if (note) deleteNote(note); // アニメーション付き削除関数に変更
+    if (note) deleteNote(note); 
 }
 
 export function resetEditState() {
     editState.action = null;
     editState.targetNote = null;
-    editState.originalNotesData =[];
+    editState.originalNotesData = [];
     editState.processedNoteIds.clear();
+    editState.lastPreviewPitch = -1; // リセット
 }
