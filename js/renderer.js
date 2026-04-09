@@ -1,17 +1,17 @@
 import { STATE } from './state.js';
 import { tickToX, xToTick, pitchToY, isBlackKey, getNoteName } from './utils.js';
 
-// keyboard関連の変数を削除
-let ctxGrid, ctxTimeline;
-let canvasGrid, canvasTimeline;
+let ctxGrid, ctxKeyboard, ctxTimeline;
+let canvasGrid, canvasKeyboard, canvasTimeline;
 let animationFrameId = null;
 
 export function initRenderer(gridCvs, keyCvs, timeCvs) {
     canvasGrid = gridCvs;
+    canvasKeyboard = keyCvs; // 復活
     canvasTimeline = timeCvs;
     ctxGrid = canvasGrid.getContext('2d');
+    if (canvasKeyboard) ctxKeyboard = canvasKeyboard.getContext('2d');
     ctxTimeline = canvasTimeline.getContext('2d');
-    // keyCvs(nullが渡される)の初期化を削除
 }
 
 export function renderAll() {
@@ -28,7 +28,7 @@ export function renderAll() {
     
     renderPlayheadGrid(); 
     
-    // renderKeyboard() の呼び出しを削除
+    if (canvasKeyboard) renderKeyboard(); // 復活
     renderTimeline();
 }
 
@@ -43,9 +43,7 @@ function animateFadeOut() {
         if (note.opacity > 0) stillAnimating = true;
     });
     STATE.dyingNotes = STATE.dyingNotes.filter(note => note.opacity > 0);
-    
     renderAll();
-    
     if (stillAnimating) {
         animationFrameId = requestAnimationFrame(animateFadeOut);
     } else {
@@ -56,14 +54,12 @@ function animateFadeOut() {
 function renderGrid() {
     const w = canvasGrid.width, h = canvasGrid.height;
     ctxGrid.clearRect(0, 0, w, h);
-
     const topPitch = STATE.scrollPitch + 1;
     const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
 
     for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
         if (pitch < 0 || pitch > 127) continue;
         const y = pitchToY(pitch);
-        
         ctxGrid.fillStyle = isBlackKey(pitch) ? '#1a1c1d' : '#222527';
         ctxGrid.fillRect(0, y, w, STATE.zoomY);
         
@@ -102,7 +98,6 @@ function renderGhostNotes() {
             const y = pitchToY(note.pitch);
             const w = note.duration * STATE.zoomX;
             const h = STATE.zoomY;
-            
             if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
 
             ctxGrid.fillStyle = note.muted ? 'rgba(85, 85, 85, 0.3)' : 'rgba(150, 150, 150, 0.4)';
@@ -128,20 +123,15 @@ function renderNotes() {
         const y = pitchToY(note.pitch);
         const w = note.duration * STATE.zoomX;
         const h = STATE.zoomY;
-        
         if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
 
         let fillColor = activeTrack.color;
         let strokeColor = activeTrack.borderColor;
         
-        // Muteの判定（ツールによる個別Muteだけでなく、トラック自体のMuteやSoloも描画に反映するならここにロジックを追加できますが、
-        // 今回はシンプルに「ミュートツールで無効化されたノート」のみ色を変えます）
         if (note.muted) {
-            fillColor = '#555555';
-            strokeColor = '#333333';
+            fillColor = '#555555'; strokeColor = '#333333';
         } else if (note.selected) {
-            fillColor = '#ff3333'; 
-            strokeColor = '#cc0000';
+            fillColor = '#ff3333'; strokeColor = '#cc0000';
         }
 
         ctxGrid.fillStyle = fillColor; 
@@ -175,7 +165,6 @@ function renderDyingNotes() {
         const y = pitchToY(note.pitch);
         const w = note.duration * STATE.zoomX;
         const h = STATE.zoomY;
-        
         if (x + w < 0 || x > canvasGrid.width || y + h < 0 || y > canvasGrid.height) return;
 
         ctxGrid.globalAlpha = note.opacity;
@@ -186,7 +175,6 @@ function renderDyingNotes() {
         if (ctxGrid.roundRect) ctxGrid.roundRect(x, y + heightPadding, w, h - heightPadding * 2, 3);
         else ctxGrid.rect(x, y + heightPadding, w, h - heightPadding * 2);
         ctxGrid.stroke();
-        
         ctxGrid.globalAlpha = 1.0; 
     });
 }
@@ -225,12 +213,32 @@ function renderPlayheadGrid() {
     }
 }
 
-// renderKeyboard 関数をまるごと削除しました
+function renderKeyboard() {
+    const w = canvasKeyboard.width, h = canvasKeyboard.height;
+    ctxKeyboard.clearRect(0, 0, w, h);
+    const topPitch = STATE.scrollPitch + 1;
+    const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
+
+    for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
+        if (pitch < 0 || pitch > 127) continue;
+        const y = pitchToY(pitch);
+        ctxKeyboard.fillStyle = isBlackKey(pitch) ? '#1e1e1e' : '#e0e0e0';
+        ctxKeyboard.fillRect(0, y, w, STATE.zoomY);
+        
+        ctxKeyboard.strokeStyle = '#000'; 
+        ctxKeyboard.strokeRect(0, y, w, STATE.zoomY);
+        
+        if (pitch % 12 === 0) {
+            ctxKeyboard.fillStyle = '#333'; 
+            ctxKeyboard.font = '10px sans-serif';
+            ctxKeyboard.fillText(getNoteName(pitch), w - 25, y + STATE.zoomY - 5);
+        }
+    }
+}
 
 function renderTimeline() {
     const w = canvasTimeline.width, h = canvasTimeline.height;
     ctxTimeline.clearRect(0, 0, w, h);
-    
     ctxTimeline.fillStyle = '#3b4043';
     ctxTimeline.fillRect(0, 0, w, h);
 

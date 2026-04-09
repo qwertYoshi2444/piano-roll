@@ -17,8 +17,11 @@ let lastMouseY = 0;
 export function initEvents(gridCvs) {
     canvasGrid = gridCvs;
     canvasTimeline = document.getElementById('timeline-canvas');
+    const keyCvs = document.getElementById('keyboard-canvas'); // 復活
 
+    // スマホでの予期せぬタップによるスクロールを防ぐため、passive: falseを指定可能にする
     document.body.addEventListener('mousedown', initAudio, { once: true });
+    document.body.addEventListener('touchstart', initAudio, { once: true, passive: true });
     document.body.addEventListener('keydown', initAudio, { once: true });
 
     if (canvasGrid) {
@@ -31,8 +34,16 @@ export function initEvents(gridCvs) {
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
 
-    // 鍵盤クリック時のイベントを削除しました
-
+    // --- 復活: 鍵盤クリック時の発音イベント ---
+    if (keyCvs) {
+        keyCvs.addEventListener('mousedown', (e) => {
+            const rect = keyCvs.getBoundingClientRect();
+            const mouseY = e.clientY - rect.top;
+            const pitch = getPitchAtY(mouseY);
+            if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
+        });
+    }
+    
     if (canvasTimeline) {
         canvasTimeline.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return; 
@@ -178,6 +189,9 @@ function onWheel(e) {
 }
 
 function onKeyDown(e) {
+    // モーダル等でのテキスト入力中ならショートカットを無視
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+
     if (e.key.toLowerCase() === 'p') setTool('draw');
     if (e.key.toLowerCase() === 'e') setTool('select');
     if (e.key.toLowerCase() === 't') setTool('mute');

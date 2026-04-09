@@ -2,20 +2,21 @@ import { STATE, clearSelection } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
 
-let editingTrackId = null; // 現在音色設定を開いているトラックID
+let editingTrackId = null; 
 
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
-    // キーボードキャンバスは廃止し、トラックリストに置き換わりました
+    const keyCvs = document.getElementById('keyboard-canvas'); // 復活
     const timeCvs = document.getElementById('timeline-canvas');
 
-    // rendererの初期化シグネチャを変更（鍵盤キャンバスを渡さない）
-    initRenderer(gridCvs, null, timeCvs);
+    initRenderer(gridCvs, keyCvs, timeCvs);
     initEvents(gridCvs);
 
     window.addEventListener('resize', resizeCanvas);
+    // パネル開閉時のCSSトランジションが終わったタイミングでリサイズ計算させる
+    document.getElementById('track-panel-container').addEventListener('transitionend', resizeCanvas);
+    
     resizeCanvas();
-
     setupToolbar();
     setupTrackPanel();
     setupSynthModal();
@@ -23,18 +24,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function resizeCanvas() {
-    const editorArea = document.getElementById('editor-area');
-    const rect = editorArea.getBoundingClientRect();
+    const rollArea = document.getElementById('roll-area');
+    const rect = rollArea.getBoundingClientRect();
     
     const gridCvs = document.getElementById('grid-canvas');
+    const keyCvs = document.getElementById('keyboard-canvas');
     const timeCvs = document.getElementById('timeline-canvas');
 
-    // CSS Grid の設定に合わせて幅を計算 (左側トラックパネルが200px)
-    const w = rect.width - 200;
-    const h = rect.height - 30;
+    // 鍵盤幅(80px)を引いたものがメイングリッドとタイムラインの幅
+    const w = rect.width - 80;
+    const h = rect.height - 30; // タイムライン高さ(30px)を引く
 
     gridCvs.width = w; 
     gridCvs.height = h;
+    keyCvs.width = 80; 
+    keyCvs.height = h;
     timeCvs.width = w; 
     timeCvs.height = 30;
 
@@ -42,6 +46,14 @@ function resizeCanvas() {
 }
 
 function setupToolbar() {
+    // パネル開閉トグル
+    const btnTogglePanel = document.getElementById('btn-toggle-panel');
+    const panelContainer = document.getElementById('track-panel-container');
+    btnTogglePanel.addEventListener('click', () => {
+        panelContainer.classList.toggle('closed');
+        // transitionend イベントで resizeCanvas が呼ばれる
+    });
+
     document.getElementById('snap-select').addEventListener('change', e => {
         STATE.snap = parseInt(e.target.value, 10);
     });
@@ -62,44 +74,37 @@ function setupToolbar() {
     });
 }
 
-// --- 新規: トラック管理パネルの動的生成とイベントバインド ---
 function setupTrackPanel() {
     const trackList = document.getElementById('track-list');
-    trackList.innerHTML = ''; // クリア
+    trackList.innerHTML = ''; 
 
     STATE.tracks.forEach(track => {
-        // トラック全体を囲むdiv
         const itemDiv = document.createElement('div');
         itemDiv.className = `track-item ${track.id === STATE.activeTrackId ? 'active' : ''}`;
         itemDiv.dataset.trackId = track.id;
 
-        // カラーインジケータ
         const colorDiv = document.createElement('div');
         colorDiv.className = 'track-color-indicator';
         colorDiv.style.backgroundColor = track.color;
 
-        // トラック名
         const nameDiv = document.createElement('div');
         nameDiv.className = 'track-name';
         nameDiv.textContent = track.name;
 
-        // コントロールボタン群
         const controlsDiv = document.createElement('div');
         controlsDiv.className = 'track-controls';
 
-        // Mute ボタン
         const muteBtn = document.createElement('button');
         muteBtn.className = `tc-btn ${track.isMuted ? 'muted' : ''}`;
         muteBtn.textContent = 'M';
         muteBtn.title = 'Mute';
         muteBtn.addEventListener('click', (e) => {
-            e.stopPropagation(); // トラック選択イベントの発火を防ぐ
+            e.stopPropagation(); 
             track.isMuted = !track.isMuted;
             muteBtn.classList.toggle('muted', track.isMuted);
             renderAll();
         });
 
-        // Solo ボタン
         const soloBtn = document.createElement('button');
         soloBtn.className = `tc-btn ${track.isSoloed ? 'soloed' : ''}`;
         soloBtn.textContent = 'S';
@@ -108,8 +113,6 @@ function setupTrackPanel() {
             e.stopPropagation();
             track.isSoloed = !track.isSoloed;
             soloBtn.classList.toggle('soloed', track.isSoloed);
-            
-            // Soloが押されたら、Mute状態は解除しておくのが一般的
             if (track.isSoloed && track.isMuted) {
                 track.isMuted = false;
                 muteBtn.classList.remove('muted');
@@ -117,7 +120,6 @@ function setupTrackPanel() {
             renderAll();
         });
 
-        // 音色設定(⚙) ボタン
         const synthBtn = document.createElement('button');
         synthBtn.className = 'tc-btn';
         synthBtn.textContent = '⚙';
@@ -135,16 +137,12 @@ function setupTrackPanel() {
         itemDiv.appendChild(nameDiv);
         itemDiv.appendChild(controlsDiv);
 
-        // トラック自体をクリックした時（アクティブトラックの切り替え）
         itemDiv.addEventListener('click', () => {
             if (STATE.activeTrackId !== track.id) {
                 clearSelection();
                 STATE.activeTrackId = track.id;
-                
-                // UIのハイライトを更新
                 document.querySelectorAll('.track-item').forEach(el => el.classList.remove('active'));
                 itemDiv.classList.add('active');
-                
                 renderAll();
             }
         });
@@ -153,19 +151,24 @@ function setupTrackPanel() {
     });
 }
 
-// --- 新規: 音色設定モーダルの制御 ---
 function setupSynthModal() {
     const modal = document.getElementById('synth-modal');
     const closeBtn = document.getElementById('modal-close');
     
-    // 各入力項目のイベントリスナー（値が変更されたら即座にトラックデータに反映）
-    const inputs = ['waveform', 'attack', 'decay', 'sustain', 'release'];
-    inputs.forEach(key => {
+    // UI上の表示(ms, %)と内部データ(秒, 0-1)の変換ロジック
+    const inputHandlers = {
+        'waveform': (val) => val,
+        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), // ms -> sec (0回避)
+        'decay':    (val) => parseFloat(val) / 1000,                   // ms -> sec
+        'sustain':  (val) => parseFloat(val) / 100,                    // % -> level(0-1)
+        'release':  (val) => parseFloat(val) / 1000                    // ms -> sec
+    };
+
+    Object.keys(inputHandlers).forEach(key => {
         document.getElementById(`synth-${key}`).addEventListener('input', (e) => {
             if (editingTrackId) {
                 const track = STATE.tracks.find(t => t.id === editingTrackId);
-                // waveformは文字列、それ以外は数値として保存
-                track[key] = key === 'waveform' ? e.target.value : parseFloat(e.target.value);
+                track[key] = inputHandlers[key](e.target.value);
             }
         });
     });
@@ -182,15 +185,14 @@ function openSynthModal(trackId) {
     
     editingTrackId = trackId;
     
-    // モーダル内のUIに現在のトラック設定を反映
     document.getElementById('modal-track-name').textContent = `${track.name} Settings`;
     document.getElementById('synth-waveform').value = track.waveform;
-    document.getElementById('synth-attack').value = track.attack;
-    document.getElementById('synth-decay').value = track.decay;
-    document.getElementById('synth-sustain').value = track.sustain;
-    document.getElementById('synth-release').value = track.release;
+    // 内部データ(秒, 0-1)からUI表示(ms, %)への変換
+    document.getElementById('synth-attack').value = track.attack * 1000;
+    document.getElementById('synth-decay').value = track.decay * 1000;
+    document.getElementById('synth-sustain').value = track.sustain * 100;
+    document.getElementById('synth-release').value = track.release * 1000;
     
-    // 表示
     document.getElementById('synth-modal').classList.add('show');
 }
 
