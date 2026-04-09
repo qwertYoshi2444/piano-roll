@@ -5,8 +5,7 @@ import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.j
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
-import { initAudio, stopPreview, playPreview } from './audio-engine.js';
-// 追加: プレイバック機能のインポート
+import { initAudio, stopPreview, playPreview, stopAllSounds, startScheduler } from './audio-engine.js';
 import { togglePlayback, stopPlayback } from './playback.js';
 
 let canvasGrid = null;
@@ -49,15 +48,12 @@ export function initEvents(gridCvs) {
             if (e.button !== 0) return; 
             isTimelineDragging = true;
             updatePlayheadFromMouse(e);
-            
-            // 手動でシークした際は再生を止めるか続けるか。今回はそのまま（Live挙動）
         });
     }
 
     const btnExport = document.getElementById('btn-export');
     if (btnExport) btnExport.addEventListener('click', exportToMIDI);
     
-    // 追加: 再生ボタンのクリックイベント
     const btnPlay = document.getElementById('btn-play');
     if (btnPlay) btnPlay.addEventListener('click', togglePlayback);
 }
@@ -67,7 +63,15 @@ function updatePlayheadFromMouse(e) {
     const rect = canvasTimeline.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const rawTick = xToTick(mouseX);
+    
     STATE.playheadTick = Math.max(0, snapTick(rawTick, e.altKey));
+    
+    // --- 追加: シーク時の音声リセット ---
+    if (STATE.isPlaying) {
+        stopAllSounds();
+        startScheduler();
+    }
+    
     renderAll();
 }
 
@@ -183,8 +187,6 @@ function onWheel(e) {
     if (e.ctrlKey) {
         STATE.zoomX *= e.deltaY > 0 ? 0.8 : 1.25;
         if (STATE.zoomX < 0.05) STATE.zoomX = 0.05; if (STATE.zoomX > 10) STATE.zoomX = 10;
-        
-        // ズーム中心をプレイヘッドにするかマウスにするか。今回はマウス優先
         STATE.scrollTick = Math.max(0, targetTick - (mouseX / STATE.zoomX));
     } else if (e.altKey) {
         STATE.zoomY *= e.deltaY > 0 ? 0.9 : 1.1;
@@ -199,9 +201,8 @@ function onWheel(e) {
 function onKeyDown(e) {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
 
-    // --- 追加: Spaceキーで再生/停止をトグル ---
     if (e.code === 'Space') {
-        e.preventDefault(); // スペースキーでの画面スクロールを防ぐ
+        e.preventDefault(); 
         togglePlayback();
         return;
     }
