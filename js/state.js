@@ -1,40 +1,42 @@
 import { startFadeOutAnimation } from './renderer.js';
 
+// 色相(Hue)ベースで滑らかに変化する16色のパレット
 const TRACK_COLORS = [
-    { fill: '#55c555', border: '#339933' },
-    { fill: '#f75b5b', border: '#cc3333' },
-    { fill: '#5b85f7', border: '#3355cc' },
-    { fill: '#e69900', border: '#b37700' },
-    { fill: '#d953d9', border: '#a626a6' },
-    { fill: '#33cccc', border: '#1a9999' },
-    { fill: '#f28c28', border: '#bf600b' },
-    { fill: '#9955ff', border: '#6622cc' },
-    { fill: '#80b3ff', border: '#4d88ff' },
-    { fill: '#ff80bf', border: '#cc4d88' },
-    { fill: '#80ff80', border: '#4dcc4d' },
-    { fill: '#b380ff', border: '#884dff' },
-    { fill: '#ffbf80', border: '#cc884d' },
-    { fill: '#cc527a', border: '#99264d' },
-    { fill: '#52a3cc', border: '#267399' },
-    { fill: '#a3cc52', border: '#739926' } 
+    { fill: '#ff4d4d', border: '#cc0000' }, // 1: Red
+    { fill: '#ff794d', border: '#cc3300' }, // 2: Red-Orange
+    { fill: '#ffa64d', border: '#cc6600' }, // 3: Orange
+    { fill: '#ffd24d', border: '#cc9900' }, // 4: Yellow-Orange
+    { fill: '#ffff4d', border: '#cccc00' }, // 5: Yellow
+    { fill: '#d2ff4d', border: '#99cc00' }, // 6: Yellow-Green
+    { fill: '#a6ff4d', border: '#66cc00' }, // 7: Light Green
+    { fill: '#4dff4d', border: '#00cc00' }, // 8: Green
+    { fill: '#4dffb3', border: '#00cc66' }, // 9: Blue-Green
+    { fill: '#4dffff', border: '#00cccc' }, // 10: Cyan
+    { fill: '#4db3ff', border: '#0066cc' }, // 11: Light Blue
+    { fill: '#4d4dff', border: '#0000cc' }, // 12: Blue
+    { fill: '#a64dff', border: '#6600cc' }, // 13: Purple
+    { fill: '#d24dff', border: '#9900cc' }, // 14: Magenta
+    { fill: '#ff4dff', border: '#cc00cc' }, // 15: Pink
+    { fill: '#ff4da6', border: '#cc0066' }  // 16: Rose
 ];
 
 const initialTracks = [];
 for (let i = 0; i < 16; i++) {
-    const waveTypes = ['sawtooth', 'square', 'triangle', 'sine'];
-    const defaultWave = waveTypes[i % 4];
-
     initialTracks.push({
         id: i + 1,
         name: `Track ${i + 1}`,
         color: TRACK_COLORS[i].fill,
         borderColor: TRACK_COLORS[i].border,
         notes: [],
-        waveform: defaultWave,
-        attack: 0.02,
-        decay: 0.3,
-        sustain: 0.4,
-        release: 0.3
+        
+        // --- 指定されたデフォルト音色設定 ---
+        waveform: 'sawtooth',
+        // Audio API では秒単位のため、ms を 1000 で割って指定
+        // ※ 0を指定するとクリックノイズが出るため極小値を指定
+        attack: 0.0001, // 0.1ms
+        decay: 0.1,     // 100ms
+        sustain: 0.75,  // 75%
+        release: 0.005  // 5ms
     });
 }
 
@@ -46,7 +48,6 @@ export const STATE = {
     scrollTick: 0,
     scrollPitch: 84,
     
-    // プレイヘッドと再生状態
     playheadTick: 0,
     isPlaying: false,
     
