@@ -21,7 +21,10 @@ export function renderAll() {
     renderNotes();
     renderDyingNotes();
     if (STATE.selectionBox.active) renderSelectionRect();
-    renderPlayheadGrid(); // 追加: グリッド上のプレイヘッド線
+    
+    // プレイヘッドは一番上に描画する
+    renderPlayheadGrid(); 
+    
     renderKeyboard();
     renderTimeline();
 }
@@ -196,20 +199,26 @@ function renderSelectionRect() {
     ctxGrid.strokeRect(minX, minY, w, h);
 }
 
-// --- 追加: グリッド上のプレイヘッド描画 ---
+// --- 修正: グリッド上のプレイヘッド描画 ---
 function renderPlayheadGrid() {
     const x = tickToX(STATE.playheadTick);
+    
+    // 画面内にプレイヘッドが存在する場合のみ描画
     if (x >= 0 && x <= canvasGrid.width) {
         ctxGrid.beginPath();
-        ctxGrid.strokeStyle = '#33cc33'; // FL Studio風の緑色
+        // ベースの細い線
+        ctxGrid.strokeStyle = '#33cc33';
         ctxGrid.lineWidth = 1.5;
         ctxGrid.moveTo(x, 0);
         ctxGrid.lineTo(x, canvasGrid.height);
         ctxGrid.stroke();
         
-        // 少し発光しているようなエフェクト
+        // 発光エフェクト（太い半透明の線）
+        ctxGrid.beginPath();
         ctxGrid.strokeStyle = 'rgba(51, 204, 51, 0.3)';
         ctxGrid.lineWidth = 4;
+        ctxGrid.moveTo(x, 0);
+        ctxGrid.lineTo(x, canvasGrid.height);
         ctxGrid.stroke();
     }
 }
@@ -240,15 +249,16 @@ function renderKeyboard() {
 function renderTimeline() {
     const w = canvasTimeline.width, h = canvasTimeline.height;
     ctxTimeline.clearRect(0, 0, w, h);
-    let currentTick = Math.floor(STATE.scrollTick / (STATE.ppq * 4)) * (STATE.ppq * 4);
     
     // 背景
     ctxTimeline.fillStyle = '#3b4043';
     ctxTimeline.fillRect(0, 0, w, h);
 
     // 目盛りと数字
+    let currentTick = Math.floor(STATE.scrollTick / (STATE.ppq * 4)) * (STATE.ppq * 4);
     ctxTimeline.fillStyle = '#d0d0d0'; 
     ctxTimeline.font = '11px sans-serif';
+    
     while (currentTick <= xToTick(w)) {
         const x = tickToX(currentTick);
         if (x >= 0) {
@@ -262,22 +272,25 @@ function renderTimeline() {
         currentTick += (STATE.ppq * 4);
     }
 
-    // --- 追加: タイムライン上のプレイヘッドマーカー ---
+    // --- 修正: タイムライン上のプレイヘッドマーカー描画 ---
     const phX = tickToX(STATE.playheadTick);
+    
     if (phX >= 0 && phX <= w) {
-        // 逆三角形を描画
+        // マーカー（逆三角形）
         ctxTimeline.fillStyle = '#33cc33';
         ctxTimeline.beginPath();
-        ctxTimeline.moveTo(phX - 6, 0);
-        ctxTimeline.lineTo(phX + 6, 0);
-        ctxTimeline.lineTo(phX, 12);
+        // タイムラインの高さの中央付近にマーカーを描画
+        const markerY = 15; 
+        ctxTimeline.moveTo(phX - 6, markerY - 6);
+        ctxTimeline.lineTo(phX + 6, markerY - 6);
+        ctxTimeline.lineTo(phX, markerY + 6);
         ctxTimeline.fill();
         
-        // 下に伸びる線
+        // マーカーから下端に伸びる線
         ctxTimeline.beginPath();
         ctxTimeline.strokeStyle = '#33cc33';
         ctxTimeline.lineWidth = 1.5;
-        ctxTimeline.moveTo(phX, 12);
+        ctxTimeline.moveTo(phX, markerY + 6);
         ctxTimeline.lineTo(phX, h);
         ctxTimeline.stroke();
     }
