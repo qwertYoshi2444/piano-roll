@@ -7,7 +7,6 @@ import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
 import { initAudio, stopPreview, playPreview } from './audio-engine.js';
 
-// モジュールレベルでの変数宣言を確実に行う
 let canvasGrid = null;
 let canvasTimeline = null;
 let isMiddleDragging = false;
@@ -18,7 +17,6 @@ let lastMouseY = 0;
 export function initEvents(gridCvs) {
     canvasGrid = gridCvs;
     canvasTimeline = document.getElementById('timeline-canvas');
-    const keyCvs = document.getElementById('keyboard-canvas');
 
     document.body.addEventListener('mousedown', initAudio, { once: true });
     document.body.addEventListener('keydown', initAudio, { once: true });
@@ -29,20 +27,12 @@ export function initEvents(gridCvs) {
         canvasGrid.addEventListener('wheel', onWheel, { passive: false });
     }
     
-    // ウィンドウ全体でマウス操作を監視
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('keydown', onKeyDown);
 
-    if (keyCvs) {
-        keyCvs.addEventListener('mousedown', (e) => {
-            const rect = keyCvs.getBoundingClientRect();
-            const mouseY = e.clientY - rect.top;
-            const pitch = getPitchAtY(mouseY);
-            if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
-        });
-    }
-    
+    // 鍵盤クリック時のイベントを削除しました
+
     if (canvasTimeline) {
         canvasTimeline.addEventListener('mousedown', (e) => {
             if (e.button !== 0) return; 
@@ -66,8 +56,6 @@ function updatePlayheadFromMouse(e) {
 
 function onMouseDown(e) {
     if (!canvasGrid) return;
-    
-    // Canvas要素内でのクリックか判定
     const rect = canvasGrid.getBoundingClientRect();
     if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
         return; 

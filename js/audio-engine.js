@@ -5,86 +5,88 @@ let previewOsc = null;
 let previewGain = null;
 let currentPreviewPitch = -1;
 
-// オーディオコンテキストの初期化（ユーザー操作をトリガーにして呼ぶ必要がある）
 export function initAudio() {
     if (!audioCtx) {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     }
-    // ブラウザの自動再生ポリシー対策
     if (audioCtx.state === 'suspended') {
         audioCtx.resume();
     }
 }
 
-// MIDIノート番号(0-127)を周波数(Hz)に変換する数式
 function pitchToFreq(pitch) {
     return 440 * Math.pow(2, (pitch - 69) / 12);
 }
 
-// ノートのプレビュー音を鳴らす（マウスダウン、または移動時）
+// --- 追加: トラックが現在発音可能(ミュートされていない)か判定するヘルパー ---
+export function isTrackAudible(track) {
+    if (!track) return false;
+    
+    // 1. 自身がMuteされていたら鳴らない
+    if (track.isMuted) return false;
+    
+    // 2. Solo機能の判定
+    // いずれかのトラックがSolo化されているかチェック
+    const isAnyTrackSoloed = STATE.tracks.some(t => t.isSoloed);
+    
+    // もしSolo化されているトラックが存在する場合、
+    // 自身もSolo化されていなければ鳴らない
+    if (isAnyTrackSoloed && !track.isSoloed) {
+        return false;
+    }
+    
+    return true; // 鳴る
+}
+
 export function playPreview(pitch, trackId) {
     if (!audioCtx) return;
 
-    // 同じ音高が既に鳴っている場合はスキップ（処理の重複を防ぐ）
-    if (previewOsc && currentPreviewPitch === pitch) return;
-
-    // もし別の音が鳴っていたら即座に止める
-    stopPreview(true);
-
     const track = STATE.tracks.find(t => t.id === trackId);
-    if (!track) return;
+    
+    // トラックがミュート状態の場合はプレビュー音を鳴らさない
+    if (!isTrackAudible(track)) return;
+
+    if (previewOsc && currentPreviewPitch === pitch) return;
+    stopPreview(true);
 
     currentPreviewPitch = pitch;
     const freq = pitchToFreq(pitch);
 
-    // オシレーター（発振器）とゲイン（音量制御）ノードを作成
     previewOsc = audioCtx.createOscillator();
     previewGain = audioCtx.createGain();
 
     previewOsc.type = track.waveform;
     previewOsc.frequency.value = freq;
 
-    // エンベロープ (ADSR) の適用
     const t = audioCtx.currentTime;
-    const maxVolume = 0.3; // プレビューのマスター音量（うるさすぎないように制限）
+    const maxVolume = 0.3;
 
-    // 1. Gainを一旦0にする
     previewGain.gain.setValueAtTime(0, t);
-    
-    // 2. Attack: 指定時間かけて最大音量まで上げる
     previewGain.gain.linearRampToValueAtTime(maxVolume, t + track.attack);
     
-    // 3. Decay & Sustain: Attack完了後、Decay時間かけてSustainレベルまで下げる
     const sustainLevel = maxVolume * track.sustain;
     previewGain.gain.setTargetAtTime(sustainLevel, t + track.attack, track.decay);
 
-    // ノードの接続と発音開始
     previewOsc.connect(previewGain);
     previewGain.connect(audioCtx.destination);
     previewOsc.start();
 }
 
-// プレビュー音を止める（マウスアップ時）
-// immediateがtrueの場合は余韻を残さず即座に切る（ドラッグ移動時用）
 export function stopPreview(immediate = false) {
     if (!previewOsc || !previewGain || !audioCtx) return;
 
     const t = audioCtx.currentTime;
     
-    // スケジュールされている音量変化をキャンセル
     previewGain.gain.cancelScheduledValues(t);
-    // 現在の音量を固定
     previewGain.gain.setValueAtTime(previewGain.gain.value, t);
 
     if (immediate) {
         previewGain.gain.linearRampToValueAtTime(0, t + 0.01);
         previewOsc.stop(t + 0.01);
     } else {
-        // Release: トラックの設定時間かけてフェードアウト
         const track = STATE.tracks.find(t => t.id === STATE.activeTrackId);
         const releaseTime = track ? track.release : 0.1;
         
-        // 0を直接指定するとエラーになるブラウザがあるため、極小値を指定
         previewGain.gain.exponentialRampToValueAtTime(0.0001, t + releaseTime);
         previewOsc.stop(t + releaseTime);
     }

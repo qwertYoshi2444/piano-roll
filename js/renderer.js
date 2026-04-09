@@ -1,22 +1,21 @@
 import { STATE } from './state.js';
 import { tickToX, xToTick, pitchToY, isBlackKey, getNoteName } from './utils.js';
 
-let ctxGrid, ctxKeyboard, ctxTimeline;
-let canvasGrid, canvasKeyboard, canvasTimeline;
+// keyboard関連の変数を削除
+let ctxGrid, ctxTimeline;
+let canvasGrid, canvasTimeline;
 let animationFrameId = null;
 
 export function initRenderer(gridCvs, keyCvs, timeCvs) {
     canvasGrid = gridCvs;
-    canvasKeyboard = keyCvs;
     canvasTimeline = timeCvs;
     ctxGrid = canvasGrid.getContext('2d');
-    ctxKeyboard = canvasKeyboard.getContext('2d');
     ctxTimeline = canvasTimeline.getContext('2d');
+    // keyCvs(nullが渡される)の初期化を削除
 }
 
 export function renderAll() {
-    // 描画キャンバスが存在しない場合は処理をスキップ（初期化エラー回避）
-    if (!ctxGrid || !ctxKeyboard || !ctxTimeline) return;
+    if (!ctxGrid || !ctxTimeline) return;
 
     renderGrid();
     renderGhostNotes();
@@ -27,10 +26,9 @@ export function renderAll() {
         renderSelectionRect();
     }
     
-    // プレイヘッドは必ず最前面（他すべてを描画した後）に描画する
     renderPlayheadGrid(); 
     
-    renderKeyboard();
+    // renderKeyboard() の呼び出しを削除
     renderTimeline();
 }
 
@@ -62,7 +60,6 @@ function renderGrid() {
     const topPitch = STATE.scrollPitch + 1;
     const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
 
-    // 背景の横帯（鍵盤色）
     for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
         if (pitch < 0 || pitch > 127) continue;
         const y = pitchToY(pitch);
@@ -78,7 +75,6 @@ function renderGrid() {
         ctxGrid.stroke();
     }
 
-    // 縦のグリッド線
     const snapTickVal = STATE.ppq / 4; 
     let currentTick = Math.floor(STATE.scrollTick / snapTickVal) * snapTickVal;
     
@@ -138,6 +134,8 @@ function renderNotes() {
         let fillColor = activeTrack.color;
         let strokeColor = activeTrack.borderColor;
         
+        // Muteの判定（ツールによる個別Muteだけでなく、トラック自体のMuteやSoloも描画に反映するならここにロジックを追加できますが、
+        // 今回はシンプルに「ミュートツールで無効化されたノート」のみ色を変えます）
         if (note.muted) {
             fillColor = '#555555';
             strokeColor = '#333333';
@@ -189,7 +187,7 @@ function renderDyingNotes() {
         else ctxGrid.rect(x, y + heightPadding, w, h - heightPadding * 2);
         ctxGrid.stroke();
         
-        ctxGrid.globalAlpha = 1.0; // 必ず元に戻す
+        ctxGrid.globalAlpha = 1.0; 
     });
 }
 
@@ -208,20 +206,16 @@ function renderSelectionRect() {
     ctxGrid.strokeRect(minX, minY, w, h);
 }
 
-// プレイヘッド（再生バー）をメイングリッドに描画
 function renderPlayheadGrid() {
     const x = tickToX(STATE.playheadTick);
-    // 画面内に少しでも入っている場合のみ描画
     if (x >= -5 && x <= canvasGrid.width + 5) {
-        // メインの線
         ctxGrid.beginPath();
-        ctxGrid.strokeStyle = '#33ff33'; // FL Studio風の明るい緑
+        ctxGrid.strokeStyle = '#33ff33';
         ctxGrid.lineWidth = 2.0;
         ctxGrid.moveTo(x, 0);
         ctxGrid.lineTo(x, canvasGrid.height);
         ctxGrid.stroke();
         
-        // 発光エフェクト（太くて薄い線）
         ctxGrid.beginPath();
         ctxGrid.strokeStyle = 'rgba(51, 255, 51, 0.15)';
         ctxGrid.lineWidth = 6.0;
@@ -231,28 +225,7 @@ function renderPlayheadGrid() {
     }
 }
 
-function renderKeyboard() {
-    const w = canvasKeyboard.width, h = canvasKeyboard.height;
-    ctxKeyboard.clearRect(0, 0, w, h);
-    const topPitch = STATE.scrollPitch + 1;
-    const bottomPitch = STATE.scrollPitch - (h / STATE.zoomY) - 1;
-
-    for (let pitch = Math.floor(topPitch); pitch >= Math.floor(bottomPitch); pitch--) {
-        if (pitch < 0 || pitch > 127) continue;
-        const y = pitchToY(pitch);
-        ctxKeyboard.fillStyle = isBlackKey(pitch) ? '#1e1e1e' : '#e0e0e0';
-        ctxKeyboard.fillRect(0, y, w, STATE.zoomY);
-        
-        ctxKeyboard.strokeStyle = '#000'; 
-        ctxKeyboard.strokeRect(0, y, w, STATE.zoomY);
-        
-        if (pitch % 12 === 0) {
-            ctxKeyboard.fillStyle = '#333'; 
-            ctxKeyboard.font = '10px sans-serif';
-            ctxKeyboard.fillText(getNoteName(pitch), w - 25, y + STATE.zoomY - 5);
-        }
-    }
-}
+// renderKeyboard 関数をまるごと削除しました
 
 function renderTimeline() {
     const w = canvasTimeline.width, h = canvasTimeline.height;
@@ -278,7 +251,6 @@ function renderTimeline() {
         currentTick += (STATE.ppq * 4);
     }
 
-    // タイムライン上のプレイヘッド（逆三角形のマーカー）
     const phX = tickToX(STATE.playheadTick);
     if (phX >= -10 && phX <= w + 10) {
         ctxTimeline.fillStyle = '#33ff33'; 
