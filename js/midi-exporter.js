@@ -1,6 +1,4 @@
 import { STATE } from './state.js';
-// CDNから midi-writer-js をインポート
-import MidiWriter from 'https://cdn.jsdelivr.net/npm/midi-writer-js@2.1.4/build/index.browser.js';
 
 export function exportToMIDI() {
     const hasNotes = STATE.tracks.some(track => track.notes.length > 0);
@@ -9,105 +7,139 @@ export function exportToMIDI() {
         return;
     }
 
-    const midiTracks =[];
+    // --- MIDIバイナリ構築のためのヘルパー関数 ---
+    
+    // 可変長数値 (VLQ: Variable Length Quantity) への変換
+    // MIDIのデルタタイム（待機時間）はこの特殊な形式でバイナリ化される
+    function toVLQ(value) {
+        let buffer = [value & 0x7F];
+        while ((value >>= 7) > 0) {
+            buffer.unshift((value & 0x7F) | 0x80);
+        }
+        return buffer;
+    }
 
-    // ライブラリの固定PPQ(128)に合わせてアプリのPPQ(96)を変換する係数
-    const targetPPQ = 128; 
-    const tickMultiplier = targetPPQ / STATE.ppq;
+    // 文字列をASCIIバイト配列に変換
+    function stringToBytes(str) {
+        return Array.from(str).map(c => c.charCodeAt(0));
+    }
 
-    // 各トラックの変換
+    // 16ビット（2バイト）の数値を配列に変換
+    function to16Bit(value) {
+        return[(value >> 8) & 0xFF, value & 0xFF];
+    }
+
+    // 32ビット（4バイト）の数値を配列に変換
+    function to32Bit(value) {
+        return[(value >> 24) & 0xFF, (value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF];
+    }
+
+    // --- トラックデータの生成 ---
+    
+    const trackChunks =[];
+    
+    // 1. コンダクタートラック (Track 0: テンポと拍子情報のみ)
+    let conductorData =[];
+    // Delta time: 0
+    conductorData.push(0x00);
+    // Tempo Meta Event: 0xFF 0x51 0x03 [t1, t2, t3]
+    const microsecondsPerBeat = Math.round(60000000 / STATE.bpm);
+    conductorData.push(0xFF, 0x51, 0x03, (microsecondsPerBeat >> 16) & 0xFF, (microsecondsPerBeat >> 8) & 0xFF, microsecondsPerBeat & 0xFF);
+    
+    // Delta time: 0
+    conductorData.push(0x00);
+    // Time Signature Meta Event (4/4拍子): 0xFF 0x58 0x04 0x04 0x02 0x18 0x08
+    conductorData.push(0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08);
+    
+    // End of Track: 0x00 0xFF 0x2F 0x00
+    conductorData.push(0x00, 0xFF, 0x2F, 0x00);
+    trackChunks.push(conductorData);
+
+    // 2. 各楽器トラック (Track 1〜16)
     STATE.tracks.forEach((track, trackIndex) => {
         const activeNotes = track.notes.filter(n => !n.muted);
         if (activeNotes.length === 0) return;
 
-        const midiTrack = new MidiWriter.Track();
-        
-        // DAWが確実にメタデータを読み取れるよう、各トラックにBPMと拍子を書き込む
-        midiTrack.addTrackName(track.name);
-        midiTrack.setTempo(STATE.bpm);
-        midiTrack.setTimeSignature(4, 4);
-        
-        const channel = trackIndex + 1; // MIDIチャンネル 1-16
+        let trackData =[];
+        const channel = trackIndex; // MIDIチャンネル (0-15 = Ch1-16)
 
-        // --- 確実な解決法: イベントの低レベル分解 ---
-        const events =[];
+        // トラック名 Meta Event: 0x00 0xFF 0x03 [length] [text...]
+        trackData.push(0x00, 0xFF, 0x03);
+        const nameBytes = stringToBytes(track.name);
+        trackData.push(...toVLQ(nameBytes.length), ...nameBytes);
 
-        // 1. すべてのノートを「発音(On)」と「消音(Off)」の2つの独立したイベントに分解
+        // すべてのノートを「Note On」と「Note Off」の2つのイベントに完全に分解する
+        let events =[];
         activeNotes.forEach(note => {
-            const startTick = Math.round(note.tick * tickMultiplier);
-            const endTick = Math.round((note.tick + note.duration) * tickMultiplier);
-
-            events.push({
-                type: 'on',
-                pitch: note.pitch,
-                tick: startTick
-            });
-
-            events.push({
-                type: 'off',
-                pitch: note.pitch,
-                tick: endTick
-            });
+            events.push({ type: 'on', tick: note.tick, pitch: note.pitch, velocity: 100 });
+            events.push({ type: 'off', tick: note.tick + note.duration, pitch: note.pitch, velocity: 0 });
         });
 
-        // 2. 曲の先頭からの絶対時間(tick)でイベントを昇順ソート
+        // 絶対時間 (tick) で昇順にソート。完全に同時の場合は Off を先に処理して音が詰まるのを防ぐ
         events.sort((a, b) => {
-            if (a.tick !== b.tick) {
-                return a.tick - b.tick; // 時間が早い順
-            }
-            // ★重要: 全く同じタイミングにOnとOffが重なった場合は、
-            // 必ず「Offを先」に処理することで音が詰まるバグを防ぐ
-            if (a.type === 'off' && b.type === 'on') return -1;
-            if (a.type === 'on' && b.type === 'off') return 1;
+            if (a.tick !== b.tick) return a.tick - b.tick;
+            if (a.type !== b.type) return a.type === 'off' ? -1 : 1;
             return 0;
         });
 
-        // 3. 直前のイベントからの差分（デルタタイム）を計算しながら順番に書き込む
+        // デルタタイム（前のイベントからの差分）を計算しながらバイナリ化
         let currentTick = 0;
         events.forEach(ev => {
             const deltaTick = ev.tick - currentTick;
-            const waitTime = `T${deltaTick}`; // ライブラリ指定の Tick 待機フォーマット
+            currentTick = ev.tick;
+
+            trackData.push(...toVLQ(deltaTick)); // 待機時間
 
             if (ev.type === 'on') {
-                const noteOn = new MidiWriter.NoteOnEvent({
-                    pitch: [ev.pitch],
-                    wait: waitTime,
-                    channel: channel,
-                    velocity: 100 // 音量
-                });
-                midiTrack.addEvent(noteOn);
+                trackData.push(0x90 + channel, ev.pitch, ev.velocity); // Note On
             } else {
-                const noteOff = new MidiWriter.NoteOffEvent({
-                    pitch: [ev.pitch],
-                    wait: waitTime,
-                    channel: channel,
-                    velocity: 0
-                });
-                midiTrack.addEvent(noteOff);
+                trackData.push(0x80 + channel, ev.pitch, ev.velocity); // Note Off
             }
-
-            // 現在の時間を更新
-            currentTick = ev.tick;
         });
 
-        midiTracks.push(midiTrack);
+        // End of Track
+        trackData.push(0x00, 0xFF, 0x2F, 0x00);
+        trackChunks.push(trackData);
     });
 
-    if (midiTracks.length === 0) return;
-
-    // データ生成とBase64化
-    const write = new MidiWriter.Writer(midiTracks);
-    const dataUri = write.dataUri();
+    // --- MIDIファイル全体の結合 (SMF Format 1) ---
     
-    // ダウンロード
-    downloadURI(dataUri, `fl_clone_${STATE.bpm}bpm.mid`);
-}
+    let midiBytes =[];
 
-function downloadURI(uri, name) {
+    // ヘッダチャンク (MThd)
+    midiBytes.push(
+        0x4D, 0x54, 0x68, 0x64, // "MThd"
+        0x00, 0x00, 0x00, 0x06, // Chunk length: 6 bytes
+        0x00, 0x01,             // Format 1 (マルチトラック)
+        ...to16Bit(trackChunks.length), // トラック数
+        ...to16Bit(STATE.ppq)   // 時間分解能 (PPQ=96 をそのまま指定！)
+    );
+
+    // トラックチャンク (MTrk)
+    trackChunks.forEach(data => {
+        midiBytes.push(
+            0x4D, 0x54, 0x72, 0x6B, // "MTrk"
+            ...to32Bit(data.length), // データ長
+            ...data                  // データ本体
+        );
+    });
+
+    // --- ダウンロード処理 ---
+    
+    // Uint8Array（純粋なバイナリ配列）に変換
+    const buffer = new Uint8Array(midiBytes);
+    
+    // Blob を作成し、オブジェクトURLを発行
+    const blob = new Blob([buffer], { type: 'audio/midi' });
+    const url = URL.createObjectURL(blob);
+    
     const link = document.createElement("a");
-    link.download = name;
-    link.href = uri;
+    link.href = url;
+    link.download = `fl_clone_${STATE.bpm}bpm.mid`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    
+    // メモリ解放
+    URL.revokeObjectURL(url);
 }
