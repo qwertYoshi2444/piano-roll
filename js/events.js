@@ -10,7 +10,7 @@ import { initAudio, stopPreview, playPreview } from './audio-engine.js';
 let canvasGrid;
 let canvasTimeline;
 let isMiddleDragging = false;
-let isTimelineDragging = false; // 追加: タイムラインのドラッグ状態
+let isTimelineDragging = false; 
 let lastMouseX = 0;
 let lastMouseY = 0;
 
@@ -25,8 +25,11 @@ export function initEvents(gridCvs) {
     // グリッドイベント
     canvasGrid.addEventListener('contextmenu', e => e.preventDefault());
     canvasGrid.addEventListener('mousedown', onMouseDown);
+    
+    // ウィンドウ全体でマウスムーブ・アップを監視（ドラッグ中のCanvas外はみ出し対策）
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+    
     canvasGrid.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('keydown', onKeyDown);
 
@@ -38,12 +41,17 @@ export function initEvents(gridCvs) {
         if (pitch !== -1) playPreview(pitch, STATE.activeTrackId);
     });
     
-    // --- 追加: タイムラインイベント (プレイヘッドの移動) ---
-    canvasTimeline.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return; // 左クリックのみ
-        isTimelineDragging = true;
-        updatePlayheadFromMouse(e);
-    });
+    // --- タイムラインイベント (プレイヘッドの移動) ---
+    if (canvasTimeline) {
+        canvasTimeline.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // 左クリックのみ
+            isTimelineDragging = true;
+            updatePlayheadFromMouse(e);
+            
+            // タイムラインをクリックした際、フォーカスをCanvasに戻す（キーボード操作を維持するため）
+            canvasGrid.focus();
+        });
+    }
 
     const btnExport = document.getElementById('btn-export');
     if (btnExport) btnExport.addEventListener('click', exportToMIDI);
@@ -51,11 +59,11 @@ export function initEvents(gridCvs) {
 
 // タイムラインクリック時のプレイヘッド更新処理
 function updatePlayheadFromMouse(e) {
+    if (!canvasTimeline) return;
     const rect = canvasTimeline.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const rawTick = xToTick(mouseX);
     
-    // スナップを考慮してプレイヘッド位置を決定 (Altキーでスナップ無視)
     STATE.playheadTick = Math.max(0, snapTick(rawTick, e.altKey));
     renderAll();
 }
@@ -84,7 +92,7 @@ function onMouseDown(e) {
 }
 
 function onMouseMove(e) {
-    // --- 追加: タイムラインドラッグ中のプレイヘッド移動 ---
+    // タイムラインドラッグ中のプレイヘッド移動
     if (isTimelineDragging) {
         updatePlayheadFromMouse(e);
         return;
@@ -101,6 +109,7 @@ function onMouseMove(e) {
         return;
     }
 
+    // 現在のマウスがCanvas上にあるかに関わらず、イベント元から計算
     const rect = canvasGrid.getBoundingClientRect();
     const mouseX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
     const mouseY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
