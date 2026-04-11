@@ -2,14 +2,16 @@ import { STATE } from './state.js';
 
 let audioCtx = null;
 
-// プレビュー用の変数
 let previewOsc = null;
 let previewGain = null;
 let currentPreviewPitch = -1;
 
-// シーケンサー再生用の変数
-const scheduledNoteIds = new Set(); // 既にスケジュール済みのノートIDを記録
-let activeNodes =[]; // 再生中・スケジュール中のオシレーターとゲインを管理
+const scheduledNoteIds = new Set(); 
+let activeNodes =[]; 
+
+// 追加: リファレンス音声用のノード
+let refSource = null;
+let refGain = null;
 
 export function initAudio() {
     if (!audioCtx) {
@@ -24,18 +26,89 @@ function pitchToFreq(pitch) {
     return 440 * Math.pow(2, (pitch - 69) / 12);
 }
 
+// 変更: Solo時のミュートロジックにリファレンストラックを考慮
 export function isTrackAudible(track) {
     if (!track) return false;
     if (track.isMuted) return false;
     
-    const isAnyTrackSoloed = STATE.tracks.some(t => t.isSoloed);
-    if (isAnyTrackSoloed && !track.isSoloed) {
-        return false;
+    const isAnyInstSoloed = STATE.tracks.some(t => t.isSoloed);
+    const isRefSoloed = STATE.referenceTrack.isSoloed;
+    
+    // いずれかのトラックがソロ化されている場合、自身のソロ状態のみで判定
+    if (isAnyInstSoloed || isRefSoloed) {
+        return track.isSoloed;
     }
     return true;
 }
 
-// --- プレビュー発音（マウスクリック等） ---
+// --- 追加: リファレンス音声トラック機能 ---
+
+export async function loadReferenceAudio(file) {
+    initAudio();
+    const arrayBuffer = await file.arrayBuffer();
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    STATE.referenceTrack.buffer = audioBuffer;
+    STATE.referenceTrack.fileName = file.name;
+    STATE.referenceTrack.isLoaded = true;
+}
+
+export function playReferenceAudio(startTick) {
+    if (!audioCtx || !STATE.referenceTrack.isLoaded || !STATE.referenceTrack.buffer) return;
+    stopReferenceAudio();
+
+    refSource = audioCtx.createBufferSource();
+    refSource.buffer = STATE.referenceTrack.buffer;
+
+    refGain = audioCtx.createGain();
+    
+    // 接続
+    refSource.connect(refGain);
+    refGain.connect(audioCtx.destination);
+    
+    updateReferenceVolume(); // Solo/Mute・Volumeの適用
+
+    // Tickをオフセット秒数に変換して再生
+    const secondsPerTick = 60 / (STATE.bpm * STATE.ppq);
+    const offsetSeconds = startTick * secondsPerTick;
+
+    // バッファの長さを超えていなければ再生
+    if (offsetSeconds < refSource.buffer.duration) {
+        refSource.start(0, offsetSeconds);
+    }
+}
+
+export function stopReferenceAudio() {
+    if (refSource) {
+        try { refSource.stop(); } catch(e) {}
+        refSource.disconnect();
+        refSource = null;
+    }
+    if (refGain) {
+        refGain.disconnect();
+        refGain = null;
+    }
+}
+
+// Mute/Soloおよび音量スライダの変更時にリアルタイムでゲインを適用
+export function updateReferenceVolume() {
+    if (!refGain || !audioCtx) return;
+    
+    const isMuted = STATE.referenceTrack.isMuted;
+    const isAnyInstSoloed = STATE.tracks.some(t => t.isSoloed);
+    const isRefSoloed = STATE.referenceTrack.isSoloed;
+
+    let audible = true;
+    if (isMuted) audible = false;
+    // インストゥルメントがソロ化されており、自身がソロ化されていない場合はミュート
+    if (isAnyInstSoloed && !isRefSoloed) audible = false;
+
+    const targetVol = audible ? STATE.referenceTrack.volume : 0;
+    
+    // ノイズを避けるための微小フェード
+    refGain.gain.setTargetAtTime(targetVol, audioCtx.currentTime, 0.01);
+}
+
+// --- プレビュー発音 ---
 export function playPreview(pitch, trackId) {
     if (!audioCtx) return;
     const track = STATE.tracks.find(t => t.id === trackId);
@@ -46,7 +119,6 @@ export function playPreview(pitch, trackId) {
 
     currentPreviewPitch = pitch;
     
-    // トランスポーズを適用 (0-127内にクランプ)
     const actualPitch = Math.max(0, Math.min(127, pitch + STATE.globalTranspose));
     const freq = pitchToFreq(actualPitch);
 
@@ -57,7 +129,6 @@ export function playPreview(pitch, trackId) {
     previewOsc.frequency.value = freq;
 
     const t = audioCtx.currentTime;
-    // Track Volume を乗算
     const trackVol = track.volume !== undefined ? track.volume : 1.0;
     const maxVolume = 0.3 * trackVol;
 
@@ -100,7 +171,6 @@ export function startScheduler() {
     stopAllSounds();
 }
 
-// 再生停止やシーク時に、予約されている音と鳴っている音を全て強制停止する
 export function stopAllSounds() {
     if (!audioCtx) return;
     const t = audioCtx.currentTime;
@@ -109,18 +179,15 @@ export function stopAllSounds() {
         try {
             node.gain.gain.cancelScheduledValues(t);
             node.gain.gain.setValueAtTime(node.gain.gain.value, t);
-            node.gain.gain.linearRampToValueAtTime(0, t + 0.02); // 短いフェードアウトでノイズ防止
+            node.gain.gain.linearRampToValueAtTime(0, t + 0.02); 
             node.osc.stop(t + 0.02);
-        } catch (e) {
-            // すでに終了しているノードへの操作エラーを無視
-        }
+        } catch (e) {}
     });
     
     activeNodes =[];
     scheduledNoteIds.clear();
 }
 
-// 毎フレーム呼ばれ、少し未来までのノートをAudio APIに予約する
 export function scheduleNotes(currentTick, lookaheadTime, secondsPerTick) {
     if (!audioCtx) return;
     
@@ -131,47 +198,35 @@ export function scheduleNotes(currentTick, lookaheadTime, secondsPerTick) {
         if (!isTrackAudible(track)) return;
         
         track.notes.forEach(note => {
-            // スケジュール範囲内で、まだ予約されていないノートを探す
             if (note.tick >= currentTick && note.tick < endTick && !note.muted && !scheduledNoteIds.has(note.id)) {
-                
-                // 現在のAudioContext時間を基準に、正確な発音時刻を計算
                 const timeOffset = (note.tick - currentTick) * secondsPerTick;
                 const startTime = audioCtx.currentTime + timeOffset;
                 const durationTime = note.duration * secondsPerTick;
                 
                 scheduleSingleNote(note, track, startTime, durationTime);
-                scheduledNoteIds.add(note.id); // 予約済みにマーキング
+                scheduledNoteIds.add(note.id);
             }
         });
     });
 }
 
-// 単一ノートの予約処理
 function scheduleSingleNote(note, track, startTime, durationTime) {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     
     osc.type = track.waveform;
-    
-    // トランスポーズ適用
     const actualPitch = Math.max(0, Math.min(127, note.pitch + STATE.globalTranspose));
     osc.frequency.value = pitchToFreq(actualPitch);
     
-    // Volume適用
     const trackVol = track.volume !== undefined ? track.volume : 1.0;
     const maxVolume = 0.3 * trackVol;
     
-    // ADSRエンベロープのスケジューリング
     gain.gain.setValueAtTime(0, startTime);
-    // Attack
     gain.gain.linearRampToValueAtTime(maxVolume, startTime + track.attack);
-    // Decay & Sustain
-    const sustainLevel = maxVolume * Math.max(0.01, track.sustain); // 0完全回避
+    const sustainLevel = maxVolume * Math.max(0.01, track.sustain);
     gain.gain.setTargetAtTime(sustainLevel, startTime + track.attack, track.decay);
     
-    // Note Off (Release)
     const releaseStartTime = startTime + durationTime;
-    // リリース開始時に予測されるサステインレベルをセット
     gain.gain.setValueAtTime(sustainLevel, releaseStartTime); 
     gain.gain.exponentialRampToValueAtTime(0.0001, releaseStartTime + track.release);
     
@@ -181,11 +236,9 @@ function scheduleSingleNote(note, track, startTime, durationTime) {
     osc.start(startTime);
     osc.stop(releaseStartTime + track.release);
     
-    // 停止用の管理配列に追加
     const nodeObj = { osc, gain };
     activeNodes.push(nodeObj);
     
-    // 再生が終わったら管理配列から削除しメモリ解放
     osc.onended = () => {
         activeNodes = activeNodes.filter(n => n !== nodeObj);
     };

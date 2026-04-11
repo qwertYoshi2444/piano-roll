@@ -1,6 +1,5 @@
 import { startFadeOutAnimation } from './renderer.js';
 
-// HSLからHEXへの変換（目に優しいパレットの動的生成用）
 function hslToHex(h, s, l) {
     l /= 100;
     const a = s * Math.min(l, 1 - l) / 100;
@@ -12,11 +11,9 @@ function hslToHex(h, s, l) {
     return `#${f(0)}${f(8)}${f(4)}`;
 }
 
-// 彩度を落とし、明度差を利用した32色のパレット
 export const TRACK_COLORS_PALETTE =[];
 for (let i = 0; i < 32; i++) {
     const h = Math.floor((i * (360 / 32)) % 360);
-    // インデックスごとに彩度と明度を交互に変えてコントラストを確保
     const s = i % 2 === 0 ? 60 : 45;
     const l = i % 2 === 0 ? 55 : 45;
     TRACK_COLORS_PALETTE.push({
@@ -25,7 +22,6 @@ for (let i = 0; i < 32; i++) {
     });
 }
 
-// 初期トラックは8つに変更
 const initialTracks =[];
 for (let i = 0; i < 8; i++) {
     initialTracks.push({
@@ -34,7 +30,7 @@ for (let i = 0; i < 8; i++) {
         color: TRACK_COLORS_PALETTE[i].fill,
         borderColor: TRACK_COLORS_PALETTE[i].border,
         notes:[],
-        volume: 1.0, // 新規: 音量設定
+        volume: 1.0,
         waveform: 'sawtooth',
         attack: 0.0001,
         decay: 0.1,
@@ -63,7 +59,17 @@ export const STATE = {
     activeTrackId: 1,
     dyingNotes:[],
     
-    globalTranspose: 0, // 新規: グローバルトランスポーズ
+    globalTranspose: 0,
+
+    // 追加: リファレンストラックの状態
+    referenceTrack: {
+        isLoaded: false,
+        buffer: null,
+        fileName: "No File",
+        isMuted: false,
+        isSoloed: false,
+        volume: 1.0
+    },
 
     selectionBox: {
         active: false,
@@ -112,15 +118,12 @@ export function deleteSelectedNotes() {
     startFadeOutAnimation();
 }
 
-// 新規: トラックの追加関数
 export function addTrack() {
     const nextId = STATE.tracks.length > 0 ? Math.max(...STATE.tracks.map(t => t.id)) + 1 : 1;
     
-    // 未使用の色を探す（32色パレットから）
     const usedColors = STATE.tracks.map(t => t.color);
     let newColorObj = TRACK_COLORS_PALETTE.find(c => !usedColors.includes(c.fill));
     
-    // 全て使われていればランダムに選ぶ
     if (!newColorObj) {
         newColorObj = TRACK_COLORS_PALETTE[Math.floor(Math.random() * TRACK_COLORS_PALETTE.length)];
     }

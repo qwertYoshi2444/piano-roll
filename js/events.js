@@ -5,7 +5,8 @@ import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.j
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
 import { exportToMIDI } from './midi-exporter.js';
-import { initAudio, stopPreview, playPreview, stopAllSounds, startScheduler } from './audio-engine.js';
+// 追加: stopReferenceAudio, playReferenceAudio
+import { initAudio, stopPreview, playPreview, stopAllSounds, startScheduler, stopReferenceAudio, playReferenceAudio } from './audio-engine.js';
 import { togglePlayback, stopPlayback } from './playback.js';
 
 let canvasGrid = null;
@@ -66,10 +67,11 @@ function updatePlayheadFromMouse(e) {
     
     STATE.playheadTick = Math.max(0, snapTick(rawTick, e.altKey));
     
-    // --- 追加: シーク時の音声リセット ---
     if (STATE.isPlaying) {
         stopAllSounds();
+        stopReferenceAudio(); // 追加
         startScheduler();
+        playReferenceAudio(STATE.playheadTick); // 追加
     }
     
     renderAll();

@@ -1,6 +1,7 @@
 import { STATE, clearSelection, addTrack, TRACK_COLORS_PALETTE } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
+import { updateReferenceVolume, loadReferenceAudio } from './audio-engine.js';
 
 let editingTrackId = null; 
 let editingColorTrackId = null;
@@ -18,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     resizeCanvas();
     setupToolbar();
+    setupRefTrackPanel(); // 追加: リファレンストラックの初期化
     setupTrackPanel();
     setupSynthModal();
     setupColorPickerModal();
@@ -65,7 +67,6 @@ function setupToolbar() {
         STATE.bpm = val;
     });
     
-    // グローバルトランスポーズのイベント設定
     const transposeInput = document.getElementById('transpose-input');
     if (transposeInput) {
         transposeInput.addEventListener('change', e => {
@@ -78,11 +79,113 @@ function setupToolbar() {
         });
     }
 
-    const tools =['draw', 'select', 'mute', 'delete'];
+    const tools = ['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
         btn.addEventListener('click', () => setTool(tool));
     });
+}
+
+// 追加: リファレンストラックUIの構築
+function setupRefTrackPanel() {
+    const container = document.getElementById('ref-track-container');
+    container.innerHTML = '';
+
+    const refDiv = document.createElement('div');
+    refDiv.className = 'ref-track-item';
+
+    const topRow = document.createElement('div');
+    topRow.className = 'track-item-top';
+
+    const fileLabel = document.createElement('label');
+    fileLabel.className = 'ref-file-label';
+    fileLabel.textContent = '📂 Audio';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'audio/*';
+    fileInput.style.display = 'none';
+
+    const fileNameDiv = document.createElement('div');
+    fileNameDiv.className = 'ref-file-name';
+    fileNameDiv.textContent = STATE.referenceTrack.fileName;
+
+    fileInput.addEventListener('change', async (e) => {
+        if (e.target.files.length > 0) {
+            const file = e.target.files[0];
+            fileNameDiv.textContent = 'Loading...';
+            try {
+                await loadReferenceAudio(file);
+                fileNameDiv.textContent = file.name;
+            } catch (err) {
+                fileNameDiv.textContent = 'Error';
+            }
+        }
+    });
+    fileLabel.appendChild(fileInput);
+
+    const controlsDiv = document.createElement('div');
+    controlsDiv.className = 'track-controls';
+
+    const muteBtn = document.createElement('button');
+    muteBtn.className = `tc-btn ${STATE.referenceTrack.isMuted ? 'muted' : ''}`;
+    muteBtn.textContent = 'M';
+    muteBtn.title = 'Mute';
+    muteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        STATE.referenceTrack.isMuted = !STATE.referenceTrack.isMuted;
+        muteBtn.classList.toggle('muted', STATE.referenceTrack.isMuted);
+        updateReferenceVolume(); // リアルタイム反映
+    });
+
+    const soloBtn = document.createElement('button');
+    soloBtn.className = `tc-btn ${STATE.referenceTrack.isSoloed ? 'soloed' : ''}`;
+    soloBtn.textContent = 'S';
+    soloBtn.title = 'Solo';
+    soloBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        STATE.referenceTrack.isSoloed = !STATE.referenceTrack.isSoloed;
+        soloBtn.classList.toggle('soloed', STATE.referenceTrack.isSoloed);
+        if (STATE.referenceTrack.isSoloed && STATE.referenceTrack.isMuted) {
+            STATE.referenceTrack.isMuted = false;
+            muteBtn.classList.remove('muted');
+        }
+        updateReferenceVolume(); // リアルタイム反映
+    });
+
+    controlsDiv.appendChild(muteBtn);
+    controlsDiv.appendChild(soloBtn);
+
+    topRow.appendChild(fileLabel);
+    topRow.appendChild(fileNameDiv);
+    topRow.appendChild(controlsDiv);
+
+    const volContainer = document.createElement('div');
+    volContainer.className = 'track-vol-container';
+    const volLabel = document.createElement('label');
+    volLabel.textContent = 'Vol';
+    const volSlider = document.createElement('input');
+    volSlider.type = 'range';
+    volSlider.className = 'track-vol';
+    volSlider.min = '0';
+    volSlider.max = '150';
+    volSlider.value = Math.round(STATE.referenceTrack.volume * 100);
+
+    volSlider.addEventListener('input', (e) => {
+        let val = parseInt(e.target.value, 10);
+        if (val >= 95 && val <= 105) { val = 100; e.target.value = val; }
+        STATE.referenceTrack.volume = val / 100;
+        volSlider.title = `Volume: ${val}%`;
+        updateReferenceVolume(); // リアルタイム反映
+    });
+    volSlider.addEventListener('mousedown', e => e.stopPropagation());
+    volSlider.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
+
+    volContainer.appendChild(volLabel);
+    volContainer.appendChild(volSlider);
+
+    refDiv.appendChild(topRow);
+    refDiv.appendChild(volContainer);
+    container.appendChild(refDiv);
 }
 
 function setupTrackPanel() {
@@ -128,6 +231,7 @@ function setupTrackPanel() {
             e.stopPropagation(); 
             track.isMuted = !track.isMuted;
             muteBtn.classList.toggle('muted', track.isMuted);
+            updateReferenceVolume(); // 追加: Muteで他の音にも影響が出る可能性を考慮し更新
             renderAll();
         });
 
@@ -143,6 +247,7 @@ function setupTrackPanel() {
                 track.isMuted = false;
                 muteBtn.classList.remove('muted');
             }
+            updateReferenceVolume(); // 追加: Solo切替時にリファレンス音声をミュート/解除
             renderAll();
         });
 
@@ -165,7 +270,6 @@ function setupTrackPanel() {
         topRow.appendChild(nameDiv);
         topRow.appendChild(controlsDiv);
 
-        // 音量スライダの組み立て
         const volContainer = document.createElement('div');
         volContainer.className = 'track-vol-container';
         const volLabel = document.createElement('label');
@@ -180,7 +284,6 @@ function setupTrackPanel() {
         
         volSlider.addEventListener('input', (e) => {
             let val = parseInt(e.target.value, 10);
-            // 95〜105 の範囲で 100 にスナップさせる
             if (val >= 95 && val <= 105) {
                 val = 100;
                 e.target.value = val;
@@ -188,7 +291,6 @@ function setupTrackPanel() {
             track.volume = val / 100;
             volSlider.title = `Volume: ${val}%`;
         });
-        // スライダ操作時に行選択をトリガーしないようにする
         volSlider.addEventListener('mousedown', e => e.stopPropagation());
         volSlider.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
 
@@ -211,7 +313,6 @@ function setupTrackPanel() {
         trackList.appendChild(itemDiv);
     });
 
-    // 「+ Add Track」ボタン
     const addBtn = document.createElement('div');
     addBtn.id = 'btn-add-track';
     addBtn.textContent = '+ Add Track';

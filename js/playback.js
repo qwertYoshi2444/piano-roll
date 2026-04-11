@@ -1,6 +1,7 @@
 import { STATE } from './state.js';
 import { renderAll } from './renderer.js';
-import { initAudio, startScheduler, stopAllSounds, scheduleNotes } from './audio-engine.js';
+// 追加: playReferenceAudio, stopReferenceAudio
+import { initAudio, startScheduler, stopAllSounds, scheduleNotes, playReferenceAudio, stopReferenceAudio } from './audio-engine.js';
 
 let lastTime = 0;
 let animationId = null;
@@ -19,7 +20,10 @@ export function togglePlayback() {
         btnPlay.classList.add('playing');
         btnPlay.innerHTML = `${ICON_STOP} <span id="label-play">Stop</span>`;
         
-        startScheduler(); // スケジューラのリセット
+        startScheduler(); 
+        
+        // 追加: リファレンス音声の再生開始
+        playReferenceAudio(STATE.playheadTick);
         
         lastTime = performance.now();
         animationId = requestAnimationFrame(playbackLoop);
@@ -33,7 +37,9 @@ export function togglePlayback() {
             animationId = null;
         }
         
-        stopAllSounds(); // 全ての音を強制停止
+        stopAllSounds(); 
+        // 追加: リファレンス音声の強制停止
+        stopReferenceAudio();
     }
     
     const canvasGrid = document.getElementById('grid-canvas');
@@ -46,7 +52,6 @@ function playbackLoop(currentTime) {
     let deltaTime = (currentTime - lastTime) / 1000;
     lastTime = currentTime;
     
-    // タブがバックグラウンドに回るなどして時間が大きく飛んだ場合、音割れを防ぐために上限を設ける
     if (deltaTime > 0.1) {
         deltaTime = 0.1;
     }
@@ -54,15 +59,11 @@ function playbackLoop(currentTime) {
     const ticksPerSecond = (STATE.bpm * STATE.ppq) / 60;
     const secondsPerTick = 60 / (STATE.bpm * STATE.ppq);
     
-    // プレイヘッドを進める
     STATE.playheadTick += ticksPerSecond * deltaTime;
 
-    // --- Audio APIへの先読みスケジューリング ---
-    // 0.1秒先までのノートを探してAudio APIに予約する
     const lookaheadTime = 0.1; 
     scheduleNotes(STATE.playheadTick, lookaheadTime, secondsPerTick);
 
-    // --- 自動スクロール処理 ---
     const canvasGrid = document.getElementById('grid-canvas');
     if (canvasGrid) {
         const visibleTicks = canvasGrid.width / STATE.zoomX;
