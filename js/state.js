@@ -1,43 +1,40 @@
 import { startFadeOutAnimation } from './renderer.js';
 
-// --- 拡張: 視認性の高い32色のカラーパレット (彩度・明度を調整) ---
 export const TRACK_COLORS = [
-    { fill: '#ff4d4d', border: '#cc0000' }, // 1: Red
-    { fill: '#ff794d', border: '#cc3300' }, // 2: Red-Orange
-    { fill: '#ffa64d', border: '#cc6600' }, // 3: Orange
-    { fill: '#ffd24d', border: '#cc9900' }, // 4: Yellow-Orange
-    { fill: '#e6e633', border: '#b3b300' }, // 5: Yellow (彩度を少し落とす)
-    { fill: '#cce633', border: '#99b300' }, // 6: Lime
-    { fill: '#99e633', border: '#66b300' }, // 7: Yellow-Green
-    { fill: '#4dff4d', border: '#00cc00' }, // 8: Green
-    { fill: '#33e680', border: '#00b34d' }, // 9: Emerald
-    { fill: '#33e6b3', border: '#00b380' }, // 10: Teal
-    { fill: '#33e6e6', border: '#00b3b3' }, // 11: Cyan
-    { fill: '#33b3e6', border: '#0080b3' }, // 12: Sky Blue
-    { fill: '#4db3ff', border: '#0066cc' }, // 13: Light Blue
-    { fill: '#4d79ff', border: '#0033cc' }, // 14: Blue
-    { fill: '#664dff', border: '#3300cc' }, // 15: Indigo
-    { fill: '#994dff', border: '#6600cc' }, // 16: Purple
-    { fill: '#cc4dff', border: '#9900cc' }, // 17: Violet
-    { fill: '#ff4dff', border: '#cc00cc' }, // 18: Magenta
-    { fill: '#ff4dcc', border: '#cc0099' }, // 19: Pink
-    { fill: '#ff4d99', border: '#cc0066' }, // 20: Rose
-    // --- 明度を落としたダーク系バリエーション (21-32) ---
-    { fill: '#cc3333', border: '#990000' }, // 21: Dark Red
-    { fill: '#cc6633', border: '#993300' }, // 22: Dark Orange
-    { fill: '#b3b326', border: '#808000' }, // 23: Dark Yellow
-    { fill: '#33cc33', border: '#009900' }, // 24: Dark Green
-    { fill: '#26b38c', border: '#008055' }, // 25: Dark Teal
-    { fill: '#26b3b3', border: '#008080' }, // 26: Dark Cyan
-    { fill: '#3380cc', border: '#004d99' }, // 27: Dark Sky Blue
-    { fill: '#3333cc', border: '#000099' }, // 28: Dark Blue
-    { fill: '#6633cc', border: '#330099' }, // 29: Dark Indigo
-    { fill: '#9933cc', border: '#660099' }, // 30: Dark Purple
-    { fill: '#cc33cc', border: '#990099' }, // 31: Dark Magenta
-    { fill: '#cc3366', border: '#990033' }  // 32: Dark Rose
+    { fill: '#ff4d4d', border: '#cc0000' }, 
+    { fill: '#ff794d', border: '#cc3300' }, 
+    { fill: '#ffa64d', border: '#cc6600' }, 
+    { fill: '#ffd24d', border: '#cc9900' }, 
+    { fill: '#e6e633', border: '#b3b300' }, 
+    { fill: '#cce633', border: '#99b300' }, 
+    { fill: '#99e633', border: '#66b300' }, 
+    { fill: '#4dff4d', border: '#00cc00' }, 
+    { fill: '#33e680', border: '#00b34d' }, 
+    { fill: '#33e6b3', border: '#00b380' }, 
+    { fill: '#33e6e6', border: '#00b3b3' }, 
+    { fill: '#33b3e6', border: '#0080b3' }, 
+    { fill: '#4db3ff', border: '#0066cc' }, 
+    { fill: '#4d79ff', border: '#0033cc' }, 
+    { fill: '#664dff', border: '#3300cc' }, 
+    { fill: '#994dff', border: '#6600cc' }, 
+    { fill: '#cc4dff', border: '#9900cc' }, 
+    { fill: '#ff4dff', border: '#cc00cc' }, 
+    { fill: '#ff4dcc', border: '#cc0099' }, 
+    { fill: '#ff4d99', border: '#cc0066' }, 
+    { fill: '#cc3333', border: '#990000' }, 
+    { fill: '#cc6633', border: '#993300' }, 
+    { fill: '#b3b326', border: '#808000' }, 
+    { fill: '#33cc33', border: '#009900' }, 
+    { fill: '#26b38c', border: '#008055' }, 
+    { fill: '#26b3b3', border: '#008080' }, 
+    { fill: '#3380cc', border: '#004d99' }, 
+    { fill: '#3333cc', border: '#000099' }, 
+    { fill: '#6633cc', border: '#330099' }, 
+    { fill: '#9933cc', border: '#660099' }, 
+    { fill: '#cc33cc', border: '#990099' }, 
+    { fill: '#cc3366', border: '#990033' }  
 ];
 
-// 初期トラック数は8
 const initialTracks = [];
 for (let i = 0; i < 8; i++) {
     const waveTypes = ['sawtooth', 'square', 'triangle', 'sine'];
@@ -46,7 +43,7 @@ for (let i = 0; i < 8; i++) {
     initialTracks.push({
         id: i + 1,
         name: `Track ${i + 1}`,
-        colorIndex: i, // パレットのインデックスを保持
+        colorIndex: i, 
         color: TRACK_COLORS[i].fill,
         borderColor: TRACK_COLORS[i].border,
         notes: [],
@@ -66,11 +63,14 @@ export const STATE = {
     scrollTick: 0,
     scrollPitch: 84,
     
+    // --- 追加: グローバルトランスポーズ (-24 から +24) ---
+    globalTranspose: 0,
+    
     playheadTick: 0,
     isPlaying: false,
     
     nextNoteId: 1,
-    nextTrackId: 9, // 次に追加されるトラックのID
+    nextTrackId: 9,
     snap: 24,
     lastDuration: 24,
     currentTool: 'draw',
@@ -97,12 +97,9 @@ export const STATE = {
     }
 };
 
-// --- トラック管理関数 ---
-
 export function addTrack() {
     const newId = STATE.nextTrackId++;
     
-    // 使われていない色（インデックス）を探す、なければ順番にループ
     const usedColorIndices = STATE.tracks.map(t => t.colorIndex);
     let newColorIndex = 0;
     for (let i = 0; i < TRACK_COLORS.length; i++) {
@@ -111,7 +108,6 @@ export function addTrack() {
             break;
         }
     }
-    // 32色すべて使われている場合は順番
     if (usedColorIndices.includes(newColorIndex)) {
         newColorIndex = STATE.tracks.length % TRACK_COLORS.length;
     }
@@ -131,7 +127,7 @@ export function addTrack() {
     };
     
     STATE.tracks.push(newTrack);
-    STATE.activeTrackId = newId; // 追加したトラックをアクティブにする
+    STATE.activeTrackId = newId;
     return newTrack;
 }
 
@@ -143,8 +139,6 @@ export function changeTrackColor(trackId, colorIndex) {
         track.borderColor = TRACK_COLORS[colorIndex].border;
     }
 }
-
-// --- 既存のヘルパー関数 ---
 
 export function clearSelection() {
     STATE.notes.forEach(n => n.selected = false);

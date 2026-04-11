@@ -3,20 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FL Studio Clone - Piano Roll (Phase 9 - Infinite Tracks)</title>
+    <title>FL Studio Clone - Piano Roll (Phase 10 - MIDI Load)</title>
     <style>
         body { 
-            margin: 0; padding: 0; 
-            background-color: #2c3032; color: #d0d0d0; 
-            font-family: 'Segoe UI', sans-serif; 
-            overflow: hidden; 
-            user-select: none;
-            touch-action: none;
-            overscroll-behavior: none;
-            padding-bottom: env(safe-area-inset-bottom);
-            padding-top: env(safe-area-inset-top);
-            padding-left: env(safe-area-inset-left);
-            padding-right: env(safe-area-inset-right);
+            margin: 0; padding: 0; background-color: #2c3032; color: #d0d0d0; font-family: 'Segoe UI', sans-serif; 
+            overflow: hidden; user-select: none; touch-action: none; overscroll-behavior: none;
+            padding-bottom: env(safe-area-inset-bottom); padding-top: env(safe-area-inset-top);
+            padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right);
         }
         
         #app-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
@@ -34,7 +27,6 @@
             display: flex; align-items: center; gap: 5px;
         }
         .tool-btn svg { width: 14px; height: 14px; fill: currentColor; stroke: currentColor; stroke-width: 0; }
-        
         .tool-btn:hover { background-color: #4b5155; }
         .tool-btn.active { background-color: #ff6600; color: #fff; border-color: #cc5200; font-weight: bold; }
         #btn-play.playing { background-color: #33cc33; border-color: #009900; color: #fff; }
@@ -44,11 +36,26 @@
         }
         input[type="number"] { width: 50px; text-align: center; }
         
+        /* --- 追加: ドロップダウンメニューのスタイル --- */
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-content {
+            display: none; position: absolute; right: 0; top: 100%; background-color: #2c3032;
+            min-width: 140px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.5); z-index: 2000;
+            border: 1px solid #555; border-radius: 4px; padding: 4px 0;
+        }
+        .dropdown:hover .dropdown-content { display: block; }
+        .dropdown-item {
+            color: #d0d0d0; padding: 8px 16px; text-decoration: none; display: block; font-size: 13px; cursor: pointer;
+        }
+        .dropdown-item:hover { background-color: #4b5155; color: #fff; }
+        
+        /* 隠しファイルインプット */
+        #midi-file-input { display: none; }
+
         .spacer { flex-grow: 1; }
         
         #editor-area { display: flex; flex: 1; overflow: hidden; position: relative; }
         
-        /* --- トラックパネル --- */
         #track-panel-container {
             width: 220px; background-color: #2c3032; border-right: 1px solid #1a1c1d;
             display: flex; flex-direction: column; transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -61,13 +68,9 @@
             display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; letter-spacing: 1px;
         }
         
-        #track-list-wrapper {
-            flex: 1; display: flex; flex-direction: column; overflow: hidden; width: 220px;
-        }
+        #track-list-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; width: 220px; }
         
-        #track-list { 
-            flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; 
-        }
+        #track-list { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; }
         #track-list::-webkit-scrollbar { width: 6px; }
         #track-list::-webkit-scrollbar-track { background: #1e2122; }
         #track-list::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
@@ -79,13 +82,9 @@
         .track-item:hover { background-color: #3b4043; }
         .track-item.active { background-color: #4b5155; }
         
-        /* 色のインジケーター（クリック可能に） */
-        .track-color-indicator { 
-            width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; border: 1px solid #000; flex-shrink: 0; cursor: pointer; 
-        }
+        .track-color-indicator { width: 14px; height: 14px; border-radius: 50%; margin-right: 8px; border: 1px solid #000; flex-shrink: 0; cursor: pointer; }
         .track-color-indicator:hover { border-color: #fff; transform: scale(1.1); }
         
-        /* トラック名（ダブルクリックで編集） */
         .track-name-input { 
             flex-grow: 1; font-size: 12px; font-weight: bold; background: transparent; border: none; color: inherit;
             padding: 2px 4px; margin-right: 4px; width: 100%; text-overflow: ellipsis; cursor: pointer;
@@ -101,7 +100,6 @@
         .tc-btn.muted { background-color: #ff3333; color: #fff; border-color: #cc0000; }
         .tc-btn.soloed { background-color: #33cc33; color: #fff; border-color: #009900; }
         
-        /* トラック追加ボタン */
         #btn-add-track {
             padding: 10px; background-color: #3b4043; border: none; border-top: 1px solid #1a1c1d; color: #d0d0d0;
             cursor: pointer; font-size: 12px; font-weight: bold; text-align: center; flex-shrink: 0;
@@ -118,11 +116,8 @@
         #keyboard-canvas { width: 80px; background-color: #1e2122; border-right: 1px solid #1a1c1d; flex-shrink: 0; touch-action: none; cursor: pointer; }
         #grid-canvas { flex: 1; background-color: #1e2122; outline: none; touch-action: none; }
         
-        /* --- 各種モーダル --- */
-        .modal-overlay {
-            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.5); z-index: 999;
-        }
+        /* モーダル */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 999; }
         .modal-overlay.show { display: block; }
         
         .modal-window {
@@ -137,7 +132,6 @@
         .modal-btn { width: 100%; padding: 8px; margin-top: 10px; background-color: #3b4043; border: 1px solid #555; color: #fff; cursor: pointer; border-radius: 4px; font-weight: bold; }
         .modal-btn:hover { background-color: #555; }
         
-        /* カラーパレット用 */
         #color-palette { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-bottom: 15px; }
         .color-swatch { width: 24px; height: 24px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
         .color-swatch:hover { border-color: #fff; transform: scale(1.1); }
@@ -185,15 +179,31 @@
                 <option value="0">None</option>
             </select>
         </div>
+        
         <div>
             <label for="bpm-input">⏱ BPM:</label>
             <input type="number" id="bpm-input" value="120" min="20" max="300">
         </div>
         
+        <!-- 追加: Transpose 設定 -->
+        <div>
+            <label for="transpose-input">Transpose:</label>
+            <input type="number" id="transpose-input" value="0" min="-24" max="24"> st
+        </div>
+        
         <div class="spacer"></div>
-        <button class="tool-btn" id="btn-export" title="Export as .mid" style="background-color: #2a5a2a; border-color: #1e401e;">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Export
-        </button>
+        
+        <!-- 追加: ドロップダウン File メニュー -->
+        <div class="dropdown">
+            <button class="tool-btn" style="background-color: #3b4043;">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> File ▼
+            </button>
+            <div class="dropdown-content">
+                <a class="dropdown-item" id="menu-load-midi">📂 Load MIDI...</a>
+                <a class="dropdown-item" id="menu-export-midi">💾 Export MIDI</a>
+            </div>
+        </div>
+        <input type="file" id="midi-file-input" accept=".mid,.midi">
     </div>
     
     <div id="editor-area">
@@ -201,7 +211,6 @@
             <div id="track-panel-header">TRACKS</div>
             <div id="track-list-wrapper">
                 <div id="track-list"></div>
-                <!-- トラック追加ボタン -->
                 <button id="btn-add-track">＋ Add Track</button>
             </div>
         </div>
@@ -219,10 +228,8 @@
     </div>
 </div>
 
-<!-- モーダル全体の背景オーバーレイ -->
 <div id="modal-overlay" class="modal-overlay"></div>
 
-<!-- シンセサイザー音色設定モーダル -->
 <div id="synth-modal" class="modal-window">
     <div class="modal-title" id="modal-track-name">Track Settings</div>
     <div class="modal-row">
@@ -253,11 +260,34 @@
     <button class="modal-btn" id="modal-close">Done</button>
 </div>
 
-<!-- 色選択モーダル -->
 <div id="color-modal" class="modal-window">
     <div class="modal-title">Select Track Color</div>
     <div id="color-palette"></div>
     <button class="modal-btn" id="color-modal-close">Done</button>
+</div>
+
+<!-- ロード時の確認ダイアログ (カスタムモーダル) -->
+<div id="load-midi-modal" class="modal-window">
+    <div class="modal-title">Import MIDI File</div>
+    <p style="font-size: 13px; color: #aaa; margin-bottom: 20px;">
+        How would you like to import this file?
+    </p>
+    <div class="modal-row">
+        <label>Import Mode:</label>
+        <select id="load-mode-select">
+            <option value="replace">Replace (Clear all tracks)</option>
+            <option value="merge">Merge (Add as new tracks)</option>
+        </select>
+    </div>
+    <div class="modal-row" id="load-bpm-row">
+        <label>Import BPM:</label>
+        <select id="load-bpm-select">
+            <option value="keep">Keep Current BPM</option>
+            <option value="import">Use MIDI BPM</option>
+        </select>
+    </div>
+    <button class="modal-btn" id="btn-confirm-load" style="background-color: #2a5a2a; border-color: #1e401e; margin-top: 20px;">Import</button>
+    <button class="modal-btn" id="btn-cancel-load" style="background-color: transparent; border: none; margin-top: 5px;">Cancel</button>
 </div>
 
 <script type="module" src="./js/main.js"></script>
