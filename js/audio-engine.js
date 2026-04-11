@@ -45,7 +45,10 @@ export function playPreview(pitch, trackId) {
     stopPreview(true);
 
     currentPreviewPitch = pitch;
-    const freq = pitchToFreq(pitch);
+    
+    // トランスポーズを適用 (0-127内にクランプ)
+    const actualPitch = Math.max(0, Math.min(127, pitch + STATE.globalTranspose));
+    const freq = pitchToFreq(actualPitch);
 
     previewOsc = audioCtx.createOscillator();
     previewGain = audioCtx.createGain();
@@ -54,7 +57,9 @@ export function playPreview(pitch, trackId) {
     previewOsc.frequency.value = freq;
 
     const t = audioCtx.currentTime;
-    const maxVolume = 0.3;
+    // Track Volume を乗算
+    const trackVol = track.volume !== undefined ? track.volume : 1.0;
+    const maxVolume = 0.3 * trackVol;
 
     previewGain.gain.setValueAtTime(0, t);
     previewGain.gain.linearRampToValueAtTime(maxVolume, t + track.attack);
@@ -147,9 +152,14 @@ function scheduleSingleNote(note, track, startTime, durationTime) {
     const gain = audioCtx.createGain();
     
     osc.type = track.waveform;
-    osc.frequency.value = pitchToFreq(note.pitch);
     
-    const maxVolume = 0.3;
+    // トランスポーズ適用
+    const actualPitch = Math.max(0, Math.min(127, note.pitch + STATE.globalTranspose));
+    osc.frequency.value = pitchToFreq(actualPitch);
+    
+    // Volume適用
+    const trackVol = track.volume !== undefined ? track.volume : 1.0;
+    const maxVolume = 0.3 * trackVol;
     
     // ADSRエンベロープのスケジューリング
     gain.gain.setValueAtTime(0, startTime);

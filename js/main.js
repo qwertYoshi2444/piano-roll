@@ -1,25 +1,26 @@
-import { STATE, clearSelection } from './state.js';
+import { STATE, clearSelection, addTrack, TRACK_COLORS_PALETTE } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
 
 let editingTrackId = null; 
+let editingColorTrackId = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
-    const keyCvs = document.getElementById('keyboard-canvas'); // 復活
+    const keyCvs = document.getElementById('keyboard-canvas');
     const timeCvs = document.getElementById('timeline-canvas');
 
     initRenderer(gridCvs, keyCvs, timeCvs);
     initEvents(gridCvs);
 
     window.addEventListener('resize', resizeCanvas);
-    // パネル開閉時のCSSトランジションが終わったタイミングでリサイズ計算させる
     document.getElementById('track-panel-container').addEventListener('transitionend', resizeCanvas);
     
     resizeCanvas();
     setupToolbar();
     setupTrackPanel();
     setupSynthModal();
+    setupColorPickerModal();
     setTool('draw');
 });
 
@@ -31,9 +32,8 @@ function resizeCanvas() {
     const keyCvs = document.getElementById('keyboard-canvas');
     const timeCvs = document.getElementById('timeline-canvas');
 
-    // 鍵盤幅(80px)を引いたものがメイングリッドとタイムラインの幅
     const w = rect.width - 80;
-    const h = rect.height - 30; // タイムライン高さ(30px)を引く
+    const h = rect.height - 30; 
 
     gridCvs.width = w; 
     gridCvs.height = h;
@@ -46,12 +46,10 @@ function resizeCanvas() {
 }
 
 function setupToolbar() {
-    // パネル開閉トグル
     const btnTogglePanel = document.getElementById('btn-toggle-panel');
     const panelContainer = document.getElementById('track-panel-container');
     btnTogglePanel.addEventListener('click', () => {
         panelContainer.classList.toggle('closed');
-        // transitionend イベントで resizeCanvas が呼ばれる
     });
 
     document.getElementById('snap-select').addEventListener('change', e => {
@@ -66,8 +64,21 @@ function setupToolbar() {
         e.target.value = val;
         STATE.bpm = val;
     });
+    
+    // グローバルトランスポーズのイベント設定
+    const transposeInput = document.getElementById('transpose-input');
+    if (transposeInput) {
+        transposeInput.addEventListener('change', e => {
+            let val = parseInt(e.target.value, 10);
+            if (isNaN(val)) val = 0;
+            if (val < -24) val = -24;
+            if (val > 24) val = 24;
+            e.target.value = val;
+            STATE.globalTranspose = val;
+        });
+    }
 
-    const tools = ['draw', 'select', 'mute', 'delete'];
+    const tools =['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
         btn.addEventListener('click', () => setTool(tool));
@@ -86,10 +97,25 @@ function setupTrackPanel() {
         const colorDiv = document.createElement('div');
         colorDiv.className = 'track-color-indicator';
         colorDiv.style.backgroundColor = track.color;
+        colorDiv.title = "Click to change color";
+        colorDiv.addEventListener('click', (e) => {
+            e.stopPropagation();
+            editingColorTrackId = track.id;
+            document.getElementById('color-picker-modal').classList.add('show');
+        });
 
         const nameDiv = document.createElement('div');
         nameDiv.className = 'track-name';
         nameDiv.textContent = track.name;
+        nameDiv.title = "Double-click to rename";
+        nameDiv.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            const newName = prompt("Enter new track name:", track.name);
+            if (newName && newName.trim() !== '') {
+                track.name = newName.trim();
+                nameDiv.textContent = track.name;
+            }
+        });
 
         const controlsDiv = document.createElement('div');
         controlsDiv.className = 'track-controls';
@@ -133,9 +159,44 @@ function setupTrackPanel() {
         controlsDiv.appendChild(soloBtn);
         controlsDiv.appendChild(synthBtn);
 
-        itemDiv.appendChild(colorDiv);
-        itemDiv.appendChild(nameDiv);
-        itemDiv.appendChild(controlsDiv);
+        const topRow = document.createElement('div');
+        topRow.className = 'track-item-top';
+        topRow.appendChild(colorDiv);
+        topRow.appendChild(nameDiv);
+        topRow.appendChild(controlsDiv);
+
+        // 音量スライダの組み立て
+        const volContainer = document.createElement('div');
+        volContainer.className = 'track-vol-container';
+        const volLabel = document.createElement('label');
+        volLabel.textContent = 'Vol';
+        const volSlider = document.createElement('input');
+        volSlider.type = 'range';
+        volSlider.className = 'track-vol';
+        volSlider.min = '0';
+        volSlider.max = '150';
+        volSlider.value = Math.round((track.volume !== undefined ? track.volume : 1.0) * 100);
+        volSlider.title = `Volume: ${volSlider.value}%`;
+        
+        volSlider.addEventListener('input', (e) => {
+            let val = parseInt(e.target.value, 10);
+            // 95〜105 の範囲で 100 にスナップさせる
+            if (val >= 95 && val <= 105) {
+                val = 100;
+                e.target.value = val;
+            }
+            track.volume = val / 100;
+            volSlider.title = `Volume: ${val}%`;
+        });
+        // スライダ操作時に行選択をトリガーしないようにする
+        volSlider.addEventListener('mousedown', e => e.stopPropagation());
+        volSlider.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
+
+        volContainer.appendChild(volLabel);
+        volContainer.appendChild(volSlider);
+
+        itemDiv.appendChild(topRow);
+        itemDiv.appendChild(volContainer);
 
         itemDiv.addEventListener('click', () => {
             if (STATE.activeTrackId !== track.id) {
@@ -149,19 +210,28 @@ function setupTrackPanel() {
 
         trackList.appendChild(itemDiv);
     });
+
+    // 「+ Add Track」ボタン
+    const addBtn = document.createElement('div');
+    addBtn.id = 'btn-add-track';
+    addBtn.textContent = '+ Add Track';
+    addBtn.addEventListener('click', () => {
+        addTrack();
+        setupTrackPanel();
+    });
+    trackList.appendChild(addBtn);
 }
 
 function setupSynthModal() {
     const modal = document.getElementById('synth-modal');
     const closeBtn = document.getElementById('modal-close');
     
-    // UI上の表示(ms, %)と内部データ(秒, 0-1)の変換ロジック
     const inputHandlers = {
         'waveform': (val) => val,
-        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), // ms -> sec (0回避)
-        'decay':    (val) => parseFloat(val) / 1000,                   // ms -> sec
-        'sustain':  (val) => parseFloat(val) / 100,                    // % -> level(0-1)
-        'release':  (val) => parseFloat(val) / 1000                    // ms -> sec
+        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), 
+        'decay':    (val) => parseFloat(val) / 1000,                   
+        'sustain':  (val) => parseFloat(val) / 100,                    
+        'release':  (val) => parseFloat(val) / 1000                    
     };
 
     Object.keys(inputHandlers).forEach(key => {
@@ -187,13 +257,43 @@ function openSynthModal(trackId) {
     
     document.getElementById('modal-track-name').textContent = `${track.name} Settings`;
     document.getElementById('synth-waveform').value = track.waveform;
-    // 内部データ(秒, 0-1)からUI表示(ms, %)への変換
     document.getElementById('synth-attack').value = track.attack * 1000;
     document.getElementById('synth-decay').value = track.decay * 1000;
     document.getElementById('synth-sustain').value = track.sustain * 100;
     document.getElementById('synth-release').value = track.release * 1000;
     
     document.getElementById('synth-modal').classList.add('show');
+}
+
+function setupColorPickerModal() {
+    const modal = document.getElementById('color-picker-modal');
+    const closeBtn = document.getElementById('color-modal-close');
+    const grid = document.getElementById('color-grid');
+    
+    TRACK_COLORS_PALETTE.forEach(colorObj => {
+        const cell = document.createElement('div');
+        cell.className = 'color-cell';
+        cell.style.backgroundColor = colorObj.fill;
+        cell.addEventListener('click', () => {
+            if (editingColorTrackId) {
+                const track = STATE.tracks.find(t => t.id === editingColorTrackId);
+                if (track) {
+                    track.color = colorObj.fill;
+                    track.borderColor = colorObj.border;
+                    setupTrackPanel(); 
+                    renderAll(); 
+                }
+            }
+            modal.classList.remove('show');
+            editingColorTrackId = null;
+        });
+        grid.appendChild(cell);
+    });
+
+    closeBtn.addEventListener('click', () => {
+        modal.classList.remove('show');
+        editingColorTrackId = null;
+    });
 }
 
 export function setTool(toolName) {
