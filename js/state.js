@@ -1,57 +1,42 @@
 import { startFadeOutAnimation } from './renderer.js';
 
-export const TRACK_COLORS = [
-    { fill: '#ff4d4d', border: '#cc0000' }, 
-    { fill: '#ff794d', border: '#cc3300' }, 
-    { fill: '#ffa64d', border: '#cc6600' }, 
-    { fill: '#ffd24d', border: '#cc9900' }, 
-    { fill: '#e6e633', border: '#b3b300' }, 
-    { fill: '#cce633', border: '#99b300' }, 
-    { fill: '#99e633', border: '#66b300' }, 
-    { fill: '#4dff4d', border: '#00cc00' }, 
-    { fill: '#33e680', border: '#00b34d' }, 
-    { fill: '#33e6b3', border: '#00b380' }, 
-    { fill: '#33e6e6', border: '#00b3b3' }, 
-    { fill: '#33b3e6', border: '#0080b3' }, 
-    { fill: '#4db3ff', border: '#0066cc' }, 
-    { fill: '#4d79ff', border: '#0033cc' }, 
-    { fill: '#664dff', border: '#3300cc' }, 
-    { fill: '#994dff', border: '#6600cc' }, 
-    { fill: '#cc4dff', border: '#9900cc' }, 
-    { fill: '#ff4dff', border: '#cc00cc' }, 
-    { fill: '#ff4dcc', border: '#cc0099' }, 
-    { fill: '#ff4d99', border: '#cc0066' }, 
-    { fill: '#cc3333', border: '#990000' }, 
-    { fill: '#cc6633', border: '#993300' }, 
-    { fill: '#b3b326', border: '#808000' }, 
-    { fill: '#33cc33', border: '#009900' }, 
-    { fill: '#26b38c', border: '#008055' }, 
-    { fill: '#26b3b3', border: '#008080' }, 
-    { fill: '#3380cc', border: '#004d99' }, 
-    { fill: '#3333cc', border: '#000099' }, 
-    { fill: '#6633cc', border: '#330099' }, 
-    { fill: '#9933cc', border: '#660099' }, 
-    { fill: '#cc33cc', border: '#990099' }, 
-    { fill: '#cc3366', border: '#990033' }  
+// 色相(Hue)ベースで滑らかに変化する16色のパレット
+const TRACK_COLORS = [
+    { fill: '#ff4d4d', border: '#cc0000' }, // 1: Red
+    { fill: '#ff794d', border: '#cc3300' }, // 2: Red-Orange
+    { fill: '#ffa64d', border: '#cc6600' }, // 3: Orange
+    { fill: '#ffd24d', border: '#cc9900' }, // 4: Yellow-Orange
+    { fill: '#ffff4d', border: '#cccc00' }, // 5: Yellow
+    { fill: '#d2ff4d', border: '#99cc00' }, // 6: Yellow-Green
+    { fill: '#a6ff4d', border: '#66cc00' }, // 7: Light Green
+    { fill: '#4dff4d', border: '#00cc00' }, // 8: Green
+    { fill: '#4dffb3', border: '#00cc66' }, // 9: Blue-Green
+    { fill: '#4dffff', border: '#00cccc' }, // 10: Cyan
+    { fill: '#4db3ff', border: '#0066cc' }, // 11: Light Blue
+    { fill: '#4d4dff', border: '#0000cc' }, // 12: Blue
+    { fill: '#a64dff', border: '#6600cc' }, // 13: Purple
+    { fill: '#d24dff', border: '#9900cc' }, // 14: Magenta
+    { fill: '#ff4dff', border: '#cc00cc' }, // 15: Pink
+    { fill: '#ff4da6', border: '#cc0066' }  // 16: Rose
 ];
 
 const initialTracks = [];
-for (let i = 0; i < 8; i++) {
-    const waveTypes = ['sawtooth', 'square', 'triangle', 'sine'];
-    const defaultWave = waveTypes[i % 4];
-
+for (let i = 0; i < 16; i++) {
     initialTracks.push({
         id: i + 1,
         name: `Track ${i + 1}`,
-        colorIndex: i, 
         color: TRACK_COLORS[i].fill,
         borderColor: TRACK_COLORS[i].border,
         notes: [],
-        waveform: defaultWave,
-        attack: 0.0001,
-        decay: 0.1,
-        sustain: 0.75,
-        release: 0.005
+        
+        // --- 指定されたデフォルト音色設定 ---
+        waveform: 'sawtooth',
+        // Audio API では秒単位のため、ms を 1000 で割って指定
+        // ※ 0を指定するとクリックノイズが出るため極小値を指定
+        attack: 0.0001, // 0.1ms
+        decay: 0.1,     // 100ms
+        sustain: 0.75,  // 75%
+        release: 0.005  // 5ms
     });
 }
 
@@ -63,14 +48,10 @@ export const STATE = {
     scrollTick: 0,
     scrollPitch: 84,
     
-    // --- 追加: グローバルトランスポーズ (-24 から +24) ---
-    globalTranspose: 0,
-    
     playheadTick: 0,
     isPlaying: false,
     
     nextNoteId: 1,
-    nextTrackId: 9,
     snap: 24,
     lastDuration: 24,
     currentTool: 'draw',
@@ -96,49 +77,6 @@ export const STATE = {
         if (track) track.notes = newNotes;
     }
 };
-
-export function addTrack() {
-    const newId = STATE.nextTrackId++;
-    
-    const usedColorIndices = STATE.tracks.map(t => t.colorIndex);
-    let newColorIndex = 0;
-    for (let i = 0; i < TRACK_COLORS.length; i++) {
-        if (!usedColorIndices.includes(i)) {
-            newColorIndex = i;
-            break;
-        }
-    }
-    if (usedColorIndices.includes(newColorIndex)) {
-        newColorIndex = STATE.tracks.length % TRACK_COLORS.length;
-    }
-
-    const newTrack = {
-        id: newId,
-        name: `Track ${newId}`,
-        colorIndex: newColorIndex,
-        color: TRACK_COLORS[newColorIndex].fill,
-        borderColor: TRACK_COLORS[newColorIndex].border,
-        notes: [],
-        waveform: 'sawtooth',
-        attack: 0.0001,
-        decay: 0.1,
-        sustain: 0.75,
-        release: 0.005
-    };
-    
-    STATE.tracks.push(newTrack);
-    STATE.activeTrackId = newId;
-    return newTrack;
-}
-
-export function changeTrackColor(trackId, colorIndex) {
-    const track = STATE.tracks.find(t => t.id === trackId);
-    if (track && colorIndex >= 0 && colorIndex < TRACK_COLORS.length) {
-        track.colorIndex = colorIndex;
-        track.color = TRACK_COLORS[colorIndex].fill;
-        track.borderColor = TRACK_COLORS[colorIndex].border;
-    }
-}
 
 export function clearSelection() {
     STATE.notes.forEach(n => n.selected = false);

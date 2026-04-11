@@ -1,27 +1,25 @@
-import { STATE, clearSelection, addTrack, changeTrackColor, TRACK_COLORS } from './state.js';
+import { STATE, clearSelection } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
-import { handleMidiFileSelect, confirmMidiLoad, closeLoadModal } from './midi-loader.js';
-import { exportToMIDI } from './midi-exporter.js';
 
 let editingTrackId = null; 
-let coloringTrackId = null; 
 
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
-    const keyCvs = document.getElementById('keyboard-canvas');
+    const keyCvs = document.getElementById('keyboard-canvas'); // 復活
     const timeCvs = document.getElementById('timeline-canvas');
 
     initRenderer(gridCvs, keyCvs, timeCvs);
     initEvents(gridCvs);
 
     window.addEventListener('resize', resizeCanvas);
+    // パネル開閉時のCSSトランジションが終わったタイミングでリサイズ計算させる
     document.getElementById('track-panel-container').addEventListener('transitionend', resizeCanvas);
     
     resizeCanvas();
     setupToolbar();
     setupTrackPanel();
-    setupModals();
+    setupSynthModal();
     setTool('draw');
 });
 
@@ -33,10 +31,9 @@ function resizeCanvas() {
     const keyCvs = document.getElementById('keyboard-canvas');
     const timeCvs = document.getElementById('timeline-canvas');
 
-    if (rect.width <= 0 || rect.height <= 0) return;
-
+    // 鍵盤幅(80px)を引いたものがメイングリッドとタイムラインの幅
     const w = rect.width - 80;
-    const h = rect.height - 30;
+    const h = rect.height - 30; // タイムライン高さ(30px)を引く
 
     gridCvs.width = w; 
     gridCvs.height = h;
@@ -49,10 +46,12 @@ function resizeCanvas() {
 }
 
 function setupToolbar() {
+    // パネル開閉トグル
     const btnTogglePanel = document.getElementById('btn-toggle-panel');
     const panelContainer = document.getElementById('track-panel-container');
     btnTogglePanel.addEventListener('click', () => {
         panelContainer.classList.toggle('closed');
+        // transitionend イベントで resizeCanvas が呼ばれる
     });
 
     document.getElementById('snap-select').addEventListener('change', e => {
@@ -67,52 +66,15 @@ function setupToolbar() {
         e.target.value = val;
         STATE.bpm = val;
     });
-    
-    // --- 追加: グローバルトランスポーズ設定 ---
-    const transposeInput = document.getElementById('transpose-input');
-    transposeInput.addEventListener('change', e => {
-        let val = parseInt(e.target.value, 10);
-        if (isNaN(val) || val < -24) val = -24;
-        if (val > 24) val = 24;
-        e.target.value = val;
-        STATE.globalTranspose = val;
-        // トランスポーズは再生時やエクスポート時に計算されるため、画面の再描画は不要
-    });
 
     const tools = ['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
         btn.addEventListener('click', () => setTool(tool));
     });
-    
-    document.getElementById('btn-add-track').addEventListener('click', () => {
-        addTrack();
-        setupTrackPanel(); 
-        renderAll();
-        
-        const trackList = document.getElementById('track-list');
-        trackList.scrollTop = trackList.scrollHeight;
-    });
-    
-    // --- 追加: File メニューのイベントバインド ---
-    const menuLoadMidi = document.getElementById('menu-load-midi');
-    const menuExportMidi = document.getElementById('menu-export-midi');
-    const midiFileInput = document.getElementById('midi-file-input');
-
-    // Load MIDI... をクリックしたら隠しinputを起動
-    menuLoadMidi.addEventListener('click', () => {
-        midiFileInput.click();
-    });
-
-    // ファイルが選択されたらパーサーに渡す
-    midiFileInput.addEventListener('change', handleMidiFileSelect);
-
-    // Export MIDI をクリック
-    menuExportMidi.addEventListener('click', exportToMIDI);
 }
 
-// トラックパネルの再構築（他のモジュールからも呼べるようにエクスポート）
-export function setupTrackPanel() {
+function setupTrackPanel() {
     const trackList = document.getElementById('track-list');
     trackList.innerHTML = ''; 
 
@@ -124,47 +86,10 @@ export function setupTrackPanel() {
         const colorDiv = document.createElement('div');
         colorDiv.className = 'track-color-indicator';
         colorDiv.style.backgroundColor = track.color;
-        colorDiv.title = 'Change Color';
-        colorDiv.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openColorModal(track.id);
-        });
 
-        const nameInput = document.createElement('input');
-        nameInput.type = 'text';
-        nameInput.className = 'track-name-input';
-        nameInput.value = track.name;
-        nameInput.readOnly = true;
-        
-        nameInput.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            nameInput.readOnly = false;
-            nameInput.focus();
-            nameInput.select();
-        });
-        
-        const finishEditing = () => {
-            nameInput.readOnly = true;
-            if (nameInput.value.trim() === '') {
-                nameInput.value = `Track ${track.id}`; 
-            }
-            track.name = nameInput.value;
-            document.getElementById('grid-canvas').focus();
-        };
-        nameInput.addEventListener('blur', finishEditing);
-        nameInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                nameInput.blur(); 
-            }
-        });
-        nameInput.addEventListener('click', (e) => {
-            if(nameInput.readOnly) {
-                itemDiv.click();
-            } else {
-                e.stopPropagation(); 
-            }
-        });
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'track-name';
+        nameDiv.textContent = track.name;
 
         const controlsDiv = document.createElement('div');
         controlsDiv.className = 'track-controls';
@@ -209,7 +134,7 @@ export function setupTrackPanel() {
         controlsDiv.appendChild(synthBtn);
 
         itemDiv.appendChild(colorDiv);
-        itemDiv.appendChild(nameInput); 
+        itemDiv.appendChild(nameDiv);
         itemDiv.appendChild(controlsDiv);
 
         itemDiv.addEventListener('click', () => {
@@ -226,19 +151,17 @@ export function setupTrackPanel() {
     });
 }
 
-function setupModals() {
-    const overlay = document.getElementById('modal-overlay');
+function setupSynthModal() {
+    const modal = document.getElementById('synth-modal');
+    const closeBtn = document.getElementById('modal-close');
     
-    // --- シンセ設定モーダル ---
-    const synthModal = document.getElementById('synth-modal');
-    const synthCloseBtn = document.getElementById('modal-close');
-    
+    // UI上の表示(ms, %)と内部データ(秒, 0-1)の変換ロジック
     const inputHandlers = {
         'waveform': (val) => val,
-        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), 
-        'decay':    (val) => parseFloat(val) / 1000,                   
-        'sustain':  (val) => parseFloat(val) / 100,                    
-        'release':  (val) => parseFloat(val) / 1000                    
+        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), // ms -> sec (0回避)
+        'decay':    (val) => parseFloat(val) / 1000,                   // ms -> sec
+        'sustain':  (val) => parseFloat(val) / 100,                    // % -> level(0-1)
+        'release':  (val) => parseFloat(val) / 1000                    // ms -> sec
     };
 
     Object.keys(inputHandlers).forEach(key => {
@@ -250,54 +173,9 @@ function setupModals() {
         });
     });
 
-    const closeSynthModal = () => {
-        synthModal.classList.remove('show');
-        overlay.classList.remove('show');
+    closeBtn.addEventListener('click', () => {
+        modal.classList.remove('show');
         editingTrackId = null;
-        document.getElementById('grid-canvas').focus(); 
-    };
-    synthCloseBtn.addEventListener('click', closeSynthModal);
-
-    // --- 色選択モーダル ---
-    const colorModal = document.getElementById('color-modal');
-    const colorCloseBtn = document.getElementById('color-modal-close');
-    const paletteContainer = document.getElementById('color-palette');
-    
-    TRACK_COLORS.forEach((colorObj, index) => {
-        const swatch = document.createElement('div');
-        swatch.className = 'color-swatch';
-        swatch.style.backgroundColor = colorObj.fill;
-        swatch.dataset.index = index;
-        
-        swatch.addEventListener('click', () => {
-            if (coloringTrackId) {
-                changeTrackColor(coloringTrackId, index);
-                setupTrackPanel(); 
-                renderAll();       
-                closeColorModal();
-            }
-        });
-        paletteContainer.appendChild(swatch);
-    });
-
-    const closeColorModal = () => {
-        colorModal.classList.remove('show');
-        overlay.classList.remove('show');
-        coloringTrackId = null;
-        document.getElementById('grid-canvas').focus();
-    };
-    colorCloseBtn.addEventListener('click', closeColorModal);
-
-    // --- 追加: MIDIロード確認モーダル ---
-    const loadMidiModal = document.getElementById('load-midi-modal');
-    document.getElementById('btn-confirm-load').addEventListener('click', confirmMidiLoad);
-    document.getElementById('btn-cancel-load').addEventListener('click', closeLoadModal);
-
-    // --- オーバーレイクリックで全て閉じる ---
-    overlay.addEventListener('click', () => {
-        closeSynthModal();
-        closeColorModal();
-        closeLoadModal();
     });
 }
 
@@ -309,40 +187,21 @@ function openSynthModal(trackId) {
     
     document.getElementById('modal-track-name').textContent = `${track.name} Settings`;
     document.getElementById('synth-waveform').value = track.waveform;
+    // 内部データ(秒, 0-1)からUI表示(ms, %)への変換
     document.getElementById('synth-attack').value = track.attack * 1000;
     document.getElementById('synth-decay').value = track.decay * 1000;
     document.getElementById('synth-sustain').value = track.sustain * 100;
     document.getElementById('synth-release').value = track.release * 1000;
     
-    document.getElementById('modal-overlay').classList.add('show');
     document.getElementById('synth-modal').classList.add('show');
-}
-
-function openColorModal(trackId) {
-    coloringTrackId = trackId;
-    const track = STATE.tracks.find(t => t.id === trackId);
-    
-    document.querySelectorAll('.color-swatch').forEach(swatch => {
-        swatch.classList.remove('selected');
-        if (parseInt(swatch.dataset.index, 10) === track.colorIndex) {
-            swatch.classList.add('selected');
-        }
-    });
-
-    document.getElementById('modal-overlay').classList.add('show');
-    document.getElementById('color-modal').classList.add('show');
 }
 
 export function setTool(toolName) {
     STATE.currentTool = toolName;
     document.querySelectorAll('.tool-btn').forEach(btn => btn.classList.remove('active'));
-    
-    const targetBtn = document.getElementById(`btn-${toolName}`);
-    if(targetBtn) targetBtn.classList.add('active');
+    document.getElementById(`btn-${toolName}`).classList.add('active');
     
     const gridCvs = document.getElementById('grid-canvas');
-    if(!gridCvs) return;
-
     if (toolName === 'draw') gridCvs.style.cursor = 'crosshair';
     else if (toolName === 'select') gridCvs.style.cursor = 'cell';
     else if (toolName === 'mute') gridCvs.style.cursor = 'not-allowed';
