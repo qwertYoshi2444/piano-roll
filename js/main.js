@@ -360,7 +360,7 @@ function setupTrackPanel() {
 }
 
 // ==========================================
-// 追加・変更: ノブと非線形マッピングのロジック
+// ノブと非線形マッピングのロジック
 // ==========================================
 const KNOB_CONFIG = {
     attack:  { min: 0.1, max: 1000, log: true },
@@ -392,7 +392,6 @@ function updateKnobVisual(param, ratio, displayValue) {
     const circleVal = wrapper.querySelector('.knob-val');
     const disp = wrapper.querySelector('.knob-value-disp');
     
-    // 270度円弧の最大DashOffset (2 * PI * 15 * 0.75 ≈ 70.686)
     const maxOffset = 70.686;
     const offset = maxOffset - (ratio * maxOffset);
     circleVal.style.strokeDashoffset = offset;
@@ -444,8 +443,7 @@ function setupSynthModal() {
     });
 
     const handleKnobMove = (clientY) => {
-        const dy = startY - clientY; // 上移動でプラス
-        // 150pxのドラッグで 0.0 ~ 1.0 になる感度
+        const dy = startY - clientY; 
         let ratio = startRatio + (dy / 150);
         ratio = Math.max(0, Math.min(1, ratio));
         
@@ -497,7 +495,8 @@ function openSynthModal(trackId) {
     document.getElementById('modal-track-name').textContent = `${track.name} Settings`;
     document.getElementById('synth-waveform').value = track.waveform;
     
-    // UIへの初期値反映['attack', 'decay', 'sustain', 'release'].forEach(param => {
+    // 【修正箇所】正しく改行し配列処理を実行する
+    ['attack', 'decay', 'sustain', 'release'].forEach(param => {
         let val = 0;
         if (param === 'attack') val = track.attack * 1000;
         else if (param === 'decay') val = track.decay * 1000;
