@@ -1,10 +1,12 @@
-import { STATE, clearSelection, addTrack, TRACK_COLORS_PALETTE } from './state.js';
+import { STATE, clearSelection, addTrack, TRACK_COLORS_PALETTE, loadParsedMIDI } from './state.js';
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
 import { updateReferenceVolume, loadReferenceAudio } from './audio-engine.js';
+import { exportToMIDI, parseMIDI } from './midi-io.js'; // 追加
 
 let editingTrackId = null; 
 let editingColorTrackId = null;
+let pendingMidiData = null; // 追加: MIDIロード用の一時データ
 
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
@@ -19,10 +21,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     resizeCanvas();
     setupToolbar();
-    setupRefTrackPanel(); // 追加: リファレンストラックの初期化
+    setupRefTrackPanel(); 
     setupTrackPanel();
     setupSynthModal();
     setupColorPickerModal();
+    setupMidiLoadModal(); // 追加
     setTool('draw');
 });
 
@@ -79,14 +82,49 @@ function setupToolbar() {
         });
     }
 
-    const tools = ['draw', 'select', 'mute', 'delete'];
+    const tools =['draw', 'select', 'mute', 'delete'];
     tools.forEach(tool => {
         const btn = document.getElementById(`btn-${tool}`);
         btn.addEventListener('click', () => setTool(tool));
     });
+
+    // 変更: Fileドロップダウンメニューのイベント紐付け
+    const menuLoad = document.getElementById('menu-load-midi');
+    const menuExport = document.getElementById('menu-export-midi');
+    const hiddenInput = document.getElementById('hidden-midi-input');
+    
+    if (menuLoad && hiddenInput) {
+        menuLoad.addEventListener('click', (e) => {
+            e.preventDefault();
+            hiddenInput.click();
+        });
+    }
+
+    if (menuExport) {
+        menuExport.addEventListener('click', (e) => {
+            e.preventDefault();
+            exportToMIDI();
+        });
+    }
+
+    // 追加: ファイル選択時のパース処理
+    if (hiddenInput) {
+        hiddenInput.addEventListener('change', async (e) => {
+            if (e.target.files.length === 0) return;
+            const file = e.target.files[0];
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                pendingMidiData = parseMIDI(arrayBuffer);
+                document.getElementById('midi-info-text').textContent = `Loaded: ${file.name} (${pendingMidiData.tracks.length} tracks)`;
+                document.getElementById('midi-load-modal').classList.add('show');
+            } catch (err) {
+                alert('Error parsing MIDI file: ' + err.message);
+            }
+            e.target.value = ''; // 連続で同じファイルを読めるようにリセット
+        });
+    }
 }
 
-// 追加: リファレンストラックUIの構築
 function setupRefTrackPanel() {
     const container = document.getElementById('ref-track-container');
     container.innerHTML = '';
@@ -134,7 +172,7 @@ function setupRefTrackPanel() {
         e.stopPropagation();
         STATE.referenceTrack.isMuted = !STATE.referenceTrack.isMuted;
         muteBtn.classList.toggle('muted', STATE.referenceTrack.isMuted);
-        updateReferenceVolume(); // リアルタイム反映
+        updateReferenceVolume(); 
     });
 
     const soloBtn = document.createElement('button');
@@ -149,7 +187,7 @@ function setupRefTrackPanel() {
             STATE.referenceTrack.isMuted = false;
             muteBtn.classList.remove('muted');
         }
-        updateReferenceVolume(); // リアルタイム反映
+        updateReferenceVolume(); 
     });
 
     controlsDiv.appendChild(muteBtn);
@@ -175,7 +213,7 @@ function setupRefTrackPanel() {
         if (val >= 95 && val <= 105) { val = 100; e.target.value = val; }
         STATE.referenceTrack.volume = val / 100;
         volSlider.title = `Volume: ${val}%`;
-        updateReferenceVolume(); // リアルタイム反映
+        updateReferenceVolume(); 
     });
     volSlider.addEventListener('mousedown', e => e.stopPropagation());
     volSlider.addEventListener('touchstart', e => e.stopPropagation(), {passive: true});
@@ -231,7 +269,7 @@ function setupTrackPanel() {
             e.stopPropagation(); 
             track.isMuted = !track.isMuted;
             muteBtn.classList.toggle('muted', track.isMuted);
-            updateReferenceVolume(); // 追加: Muteで他の音にも影響が出る可能性を考慮し更新
+            updateReferenceVolume(); 
             renderAll();
         });
 
@@ -247,7 +285,7 @@ function setupTrackPanel() {
                 track.isMuted = false;
                 muteBtn.classList.remove('muted');
             }
-            updateReferenceVolume(); // 追加: Solo切替時にリファレンス音声をミュート/解除
+            updateReferenceVolume(); 
             renderAll();
         });
 
@@ -394,6 +432,33 @@ function setupColorPickerModal() {
     closeBtn.addEventListener('click', () => {
         modal.classList.remove('show');
         editingColorTrackId = null;
+    });
+}
+
+// 追加: MIDIロード設定用のモーダル処理
+function setupMidiLoadModal() {
+    const modal = document.getElementById('midi-load-modal');
+    const btnCancel = document.getElementById('btn-midi-cancel');
+    const btnConfirm = document.getElementById('btn-midi-confirm');
+
+    btnCancel.addEventListener('click', () => {
+        modal.classList.remove('show');
+        pendingMidiData = null;
+    });
+
+    btnConfirm.addEventListener('click', () => {
+        if (!pendingMidiData) return;
+        
+        const trackMode = document.getElementById('midi-load-track-mode').value;
+        const bpmMode = document.getElementById('midi-load-bpm-mode').value;
+        
+        loadParsedMIDI(pendingMidiData, trackMode === 'append', bpmMode === 'use_midi');
+        
+        setupTrackPanel();
+        renderAll();
+        
+        modal.classList.remove('show');
+        pendingMidiData = null;
     });
 }
 

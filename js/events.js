@@ -4,8 +4,6 @@ import { renderAll } from './renderer.js';
 import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.js';
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
-import { exportToMIDI } from './midi-exporter.js';
-// 追加: stopReferenceAudio, playReferenceAudio
 import { initAudio, stopPreview, playPreview, stopAllSounds, startScheduler, stopReferenceAudio, playReferenceAudio } from './audio-engine.js';
 import { togglePlayback, stopPlayback } from './playback.js';
 
@@ -52,9 +50,6 @@ export function initEvents(gridCvs) {
         });
     }
 
-    const btnExport = document.getElementById('btn-export');
-    if (btnExport) btnExport.addEventListener('click', exportToMIDI);
-    
     const btnPlay = document.getElementById('btn-play');
     if (btnPlay) btnPlay.addEventListener('click', togglePlayback);
 }
@@ -69,9 +64,9 @@ function updatePlayheadFromMouse(e) {
     
     if (STATE.isPlaying) {
         stopAllSounds();
-        stopReferenceAudio(); // 追加
+        stopReferenceAudio(); 
         startScheduler();
-        playReferenceAudio(STATE.playheadTick); // 追加
+        playReferenceAudio(STATE.playheadTick); 
     }
     
     renderAll();

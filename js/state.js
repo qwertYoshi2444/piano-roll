@@ -61,7 +61,6 @@ export const STATE = {
     
     globalTranspose: 0,
 
-    // 追加: リファレンストラックの状態
     referenceTrack: {
         isLoaded: false,
         buffer: null,
@@ -141,4 +140,51 @@ export function addTrack() {
         sustain: 0.75,
         release: 0.005
     });
+}
+
+// 追加: MIDIロード処理
+export function loadParsedMIDI(parsedData, appendMode, overrideBpm) {
+    if (overrideBpm && parsedData.bpm) {
+        STATE.bpm = parsedData.bpm;
+        const bpmInput = document.getElementById('bpm-input');
+        if (bpmInput) bpmInput.value = STATE.bpm;
+    }
+
+    if (!appendMode) {
+        STATE.tracks =[]; // インストゥルメントトラックのみ上書き（リファレンスは維持される）
+    }
+
+    parsedData.tracks.forEach((parsedTrack, index) => {
+        const nextId = STATE.tracks.length > 0 ? Math.max(...STATE.tracks.map(t => t.id)) + 1 : 1;
+        
+        const usedColors = STATE.tracks.map(t => t.color);
+        let newColorObj = TRACK_COLORS_PALETTE.find(c => !usedColors.includes(c.fill));
+        
+        if (!newColorObj) {
+            newColorObj = TRACK_COLORS_PALETTE[Math.floor(Math.random() * TRACK_COLORS_PALETTE.length)];
+        }
+
+        const newNotes = parsedTrack.notes.map(n => ({
+            ...n,
+            id: STATE.nextNoteId++
+        }));
+
+        STATE.tracks.push({
+            id: nextId,
+            name: `MIDI Track ${appendMode ? nextId : (index + 1)}`,
+            color: newColorObj.fill,
+            borderColor: newColorObj.border,
+            notes: newNotes,
+            volume: 1.0,
+            waveform: 'sawtooth',
+            attack: 0.0001,
+            decay: 0.1,
+            sustain: 0.75,
+            release: 0.005
+        });
+    });
+
+    if (STATE.tracks.length > 0 && (!STATE.activeTrackId || !STATE.tracks.find(t => t.id === STATE.activeTrackId))) {
+        STATE.activeTrackId = STATE.tracks[0].id;
+    }
 }
