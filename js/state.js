@@ -42,10 +42,18 @@ for (let i = 0; i < 8; i++) {
 export const STATE = {
     bpm: 120,
     ppq: 96,
+    
+    // 現在の描画用パラメータ
     zoomX: 0.5,
     zoomY: 20,
     scrollTick: 0,
     scrollPitch: 84,
+    
+    // 追加: スムーズアニメーション(Lerp)用の目標パラメータ
+    targetZoomX: 0.5,
+    targetZoomY: 20,
+    targetScrollTick: 0,
+    targetScrollPitch: 84,
     
     playheadTick: 0,
     isPlaying: false,
@@ -142,7 +150,6 @@ export function addTrack() {
     });
 }
 
-// 追加: MIDIロード処理
 export function loadParsedMIDI(parsedData, appendMode, overrideBpm) {
     if (overrideBpm && parsedData.bpm) {
         STATE.bpm = parsedData.bpm;
@@ -151,7 +158,7 @@ export function loadParsedMIDI(parsedData, appendMode, overrideBpm) {
     }
 
     if (!appendMode) {
-        STATE.tracks =[]; // インストゥルメントトラックのみ上書き（リファレンスは維持される）
+        STATE.tracks =[]; 
     }
 
     parsedData.tracks.forEach((parsedTrack, index) => {

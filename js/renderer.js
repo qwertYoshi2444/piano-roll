@@ -4,10 +4,11 @@ import { tickToX, xToTick, pitchToY, isBlackKey, getNoteName } from './utils.js'
 let ctxGrid, ctxKeyboard, ctxTimeline;
 let canvasGrid, canvasKeyboard, canvasTimeline;
 let animationFrameId = null;
+let animationFrameIdLerp = null; // 追加: Lerpアニメーション用
 
 export function initRenderer(gridCvs, keyCvs, timeCvs) {
     canvasGrid = gridCvs;
-    canvasKeyboard = keyCvs; // 復活
+    canvasKeyboard = keyCvs; 
     canvasTimeline = timeCvs;
     ctxGrid = canvasGrid.getContext('2d');
     if (canvasKeyboard) ctxKeyboard = canvasKeyboard.getContext('2d');
@@ -28,7 +29,7 @@ export function renderAll() {
     
     renderPlayheadGrid(); 
     
-    if (canvasKeyboard) renderKeyboard(); // 復活
+    if (canvasKeyboard) renderKeyboard(); 
     renderTimeline();
 }
 
@@ -48,6 +49,51 @@ function animateFadeOut() {
         animationFrameId = requestAnimationFrame(animateFadeOut);
     } else {
         animationFrameId = null;
+    }
+}
+
+// --- 追加: スムーズな移動・ズーム(Lerp)のループ処理 ---
+export function startLerpAnimation() {
+    if (!animationFrameIdLerp) animateLerp();
+}
+
+function animateLerp() {
+    let needsUpdate = false;
+    const lerpFactor = 0.2; // 追従速度（約0.2秒で収束）
+
+    if (Math.abs(STATE.targetZoomX - STATE.zoomX) > 0.001) {
+        STATE.zoomX += (STATE.targetZoomX - STATE.zoomX) * lerpFactor;
+        needsUpdate = true;
+    } else {
+        STATE.zoomX = STATE.targetZoomX;
+    }
+
+    if (Math.abs(STATE.targetZoomY - STATE.zoomY) > 0.01) {
+        STATE.zoomY += (STATE.targetZoomY - STATE.zoomY) * lerpFactor;
+        needsUpdate = true;
+    } else {
+        STATE.zoomY = STATE.targetZoomY;
+    }
+
+    if (Math.abs(STATE.targetScrollTick - STATE.scrollTick) > 0.1) {
+        STATE.scrollTick += (STATE.targetScrollTick - STATE.scrollTick) * lerpFactor;
+        needsUpdate = true;
+    } else {
+        STATE.scrollTick = STATE.targetScrollTick;
+    }
+
+    if (Math.abs(STATE.targetScrollPitch - STATE.scrollPitch) > 0.01) {
+        STATE.scrollPitch += (STATE.targetScrollPitch - STATE.scrollPitch) * lerpFactor;
+        needsUpdate = true;
+    } else {
+        STATE.scrollPitch = STATE.targetScrollPitch;
+    }
+
+    if (needsUpdate) {
+        renderAll();
+        animationFrameIdLerp = requestAnimationFrame(animateLerp);
+    } else {
+        animationFrameIdLerp = null;
     }
 }
 

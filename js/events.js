@@ -1,6 +1,6 @@
 import { STATE, getSelectedNotes, deleteSelectedNotes } from './state.js';
 import { xToTick, getPitchAtY, getNoteAt, snapTick } from './utils.js';
-import { renderAll } from './renderer.js';
+import { renderAll, startLerpAnimation } from './renderer.js'; // 追加: startLerpAnimation
 import { DrawTool, SelectTool, MuteTool, DeleteTool, editState } from './tools.js';
 import { copyNotes, cutNotes, pasteNotes } from './clipboard.js';
 import { setTool } from './main.js';
@@ -109,11 +109,12 @@ function onMouseMove(e) {
     if (isMiddleDragging) {
         const dx = e.clientX - lastMouseX;
         const dy = e.clientY - lastMouseY;
-        STATE.scrollTick = Math.max(0, STATE.scrollTick - dx / STATE.zoomX);
-        STATE.scrollPitch = Math.min(127, Math.max(10, STATE.scrollPitch + dy / STATE.zoomY));
+        // 変更: 中ボタンドラッグ時は目標値を更新してLerpに任せる
+        STATE.targetScrollTick = Math.max(0, STATE.targetScrollTick - dx / STATE.targetZoomX);
+        STATE.targetScrollPitch = Math.min(127, Math.max(10, STATE.targetScrollPitch + dy / STATE.targetZoomY));
         lastMouseX = e.clientX; 
         lastMouseY = e.clientY;
-        renderAll(); 
+        startLerpAnimation();
         return;
     }
 
@@ -179,20 +180,26 @@ function updateCursor(mouseX, mouseY, rawTick) {
 function onWheel(e) {
     e.preventDefault();
     const mouseX = e.offsetX, mouseY = e.offsetY;
-    const targetTick = xToTick(mouseX), targetPitch = getPitchAtY(mouseY);
+    
+    // 変更: ホイール連続入力が不自然にならないよう、現在値ではなく目標値を基準に計算
+    const targetTick = (mouseX / STATE.targetZoomX) + STATE.targetScrollTick;
+    const targetPitch = STATE.targetScrollPitch - (mouseY / STATE.targetZoomY);
 
     if (e.ctrlKey) {
-        STATE.zoomX *= e.deltaY > 0 ? 0.8 : 1.25;
-        if (STATE.zoomX < 0.05) STATE.zoomX = 0.05; if (STATE.zoomX > 10) STATE.zoomX = 10;
-        STATE.scrollTick = Math.max(0, targetTick - (mouseX / STATE.zoomX));
+        STATE.targetZoomX *= e.deltaY > 0 ? 0.8 : 1.25;
+        if (STATE.targetZoomX < 0.05) STATE.targetZoomX = 0.05; 
+        if (STATE.targetZoomX > 10) STATE.targetZoomX = 10;
+        STATE.targetScrollTick = Math.max(0, targetTick - (mouseX / STATE.targetZoomX));
     } else if (e.altKey) {
-        STATE.zoomY *= e.deltaY > 0 ? 0.9 : 1.1;
-        if (STATE.zoomY < 5) STATE.zoomY = 5; if (STATE.zoomY > 50) STATE.zoomY = 50;
-        STATE.scrollPitch = Math.min(127, targetPitch + (mouseY / STATE.zoomY));
+        STATE.targetZoomY *= e.deltaY > 0 ? 0.9 : 1.1;
+        if (STATE.targetZoomY < 5) STATE.targetZoomY = 5; 
+        if (STATE.targetZoomY > 50) STATE.targetZoomY = 50;
+        STATE.targetScrollPitch = Math.min(127, targetPitch + (mouseY / STATE.targetZoomY));
     } else {
-        STATE.scrollPitch = Math.min(127, STATE.scrollPitch + (e.deltaY > 0 ? -2 : 2));
+        STATE.targetScrollPitch = Math.min(127, STATE.targetScrollPitch + (e.deltaY > 0 ? -2 : 2));
     }
-    renderAll();
+    
+    startLerpAnimation();
 }
 
 function onKeyDown(e) {

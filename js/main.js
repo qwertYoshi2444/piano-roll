@@ -2,11 +2,11 @@ import { STATE, clearSelection, addTrack, TRACK_COLORS_PALETTE, loadParsedMIDI }
 import { initRenderer, renderAll } from './renderer.js';
 import { initEvents } from './events.js';
 import { updateReferenceVolume, loadReferenceAudio } from './audio-engine.js';
-import { exportToMIDI, parseMIDI } from './midi-io.js'; // 追加
+import { exportToMIDI, parseMIDI } from './midi-io.js';
 
 let editingTrackId = null; 
 let editingColorTrackId = null;
-let pendingMidiData = null; // 追加: MIDIロード用の一時データ
+let pendingMidiData = null; 
 
 document.addEventListener('DOMContentLoaded', () => {
     const gridCvs = document.getElementById('grid-canvas');
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTrackPanel();
     setupSynthModal();
     setupColorPickerModal();
-    setupMidiLoadModal(); // 追加
+    setupMidiLoadModal(); 
     setTool('draw');
 });
 
@@ -88,7 +88,6 @@ function setupToolbar() {
         btn.addEventListener('click', () => setTool(tool));
     });
 
-    // 変更: Fileドロップダウンメニューのイベント紐付け
     const menuLoad = document.getElementById('menu-load-midi');
     const menuExport = document.getElementById('menu-export-midi');
     const hiddenInput = document.getElementById('hidden-midi-input');
@@ -107,7 +106,6 @@ function setupToolbar() {
         });
     }
 
-    // 追加: ファイル選択時のパース処理
     if (hiddenInput) {
         hiddenInput.addEventListener('change', async (e) => {
             if (e.target.files.length === 0) return;
@@ -120,7 +118,7 @@ function setupToolbar() {
             } catch (err) {
                 alert('Error parsing MIDI file: ' + err.message);
             }
-            e.target.value = ''; // 連続で同じファイルを読めるようにリセット
+            e.target.value = ''; 
         });
     }
 }
@@ -361,26 +359,128 @@ function setupTrackPanel() {
     trackList.appendChild(addBtn);
 }
 
+// ==========================================
+// 追加・変更: ノブと非線形マッピングのロジック
+// ==========================================
+const KNOB_CONFIG = {
+    attack:  { min: 0.1, max: 1000, log: true },
+    decay:   { min: 1,   max: 2000, log: true },
+    sustain: { min: 0,   max: 100,  log: false },
+    release: { min: 1,   max: 3000, log: true }
+};
+
+function valToRatio(val, min, max, isLog) {
+    if (isLog) return Math.log(val / min) / Math.log(max / min);
+    return (val - min) / (max - min);
+}
+
+function ratioToVal(ratio, min, max, isLog) {
+    if (isLog) return min * Math.pow(max / min, ratio);
+    return min + ratio * (max - min);
+}
+
+function formatKnobValue(param, val) {
+    if (param === 'sustain') return Math.round(val) + '%';
+    if (val >= 100) return Math.round(val) + 'ms';
+    if (val >= 10) return val.toFixed(1) + 'ms';
+    return val.toFixed(2) + 'ms';
+}
+
+function updateKnobVisual(param, ratio, displayValue) {
+    const wrapper = document.querySelector(`.knob-wrapper[data-param="${param}"]`);
+    if (!wrapper) return;
+    const circleVal = wrapper.querySelector('.knob-val');
+    const disp = wrapper.querySelector('.knob-value-disp');
+    
+    // 270度円弧の最大DashOffset (2 * PI * 15 * 0.75 ≈ 70.686)
+    const maxOffset = 70.686;
+    const offset = maxOffset - (ratio * maxOffset);
+    circleVal.style.strokeDashoffset = offset;
+    
+    disp.textContent = formatKnobValue(param, displayValue);
+}
+
 function setupSynthModal() {
     const modal = document.getElementById('synth-modal');
     const closeBtn = document.getElementById('modal-close');
     
-    const inputHandlers = {
-        'waveform': (val) => val,
-        'attack':   (val) => Math.max(0.0001, parseFloat(val) / 1000), 
-        'decay':    (val) => parseFloat(val) / 1000,                   
-        'sustain':  (val) => parseFloat(val) / 100,                    
-        'release':  (val) => parseFloat(val) / 1000                    
+    document.getElementById('synth-waveform').addEventListener('change', (e) => {
+        if (editingTrackId) {
+            const track = STATE.tracks.find(t => t.id === editingTrackId);
+            track.waveform = e.target.value;
+        }
+    });
+
+    let activeKnob = null;
+    let startY = 0;
+    let startRatio = 0;
+
+    const beginDrag = (param, clientY) => {
+        activeKnob = param;
+        startY = clientY;
+        
+        const track = STATE.tracks.find(t => t.id === editingTrackId);
+        let currentVal = 0;
+        if (param === 'attack') currentVal = track.attack * 1000;
+        else if (param === 'decay') currentVal = track.decay * 1000;
+        else if (param === 'sustain') currentVal = track.sustain * 100;
+        else if (param === 'release') currentVal = track.release * 1000;
+        
+        const config = KNOB_CONFIG[param];
+        startRatio = valToRatio(currentVal, config.min, config.max, config.log);
+        document.body.style.cursor = 'ns-resize';
     };
 
-    Object.keys(inputHandlers).forEach(key => {
-        document.getElementById(`synth-${key}`).addEventListener('input', (e) => {
-            if (editingTrackId) {
-                const track = STATE.tracks.find(t => t.id === editingTrackId);
-                track[key] = inputHandlers[key](e.target.value);
-            }
+    document.querySelectorAll('.knob').forEach(knob => {
+        const param = knob.closest('.knob-wrapper').dataset.param;
+        knob.addEventListener('mousedown', e => {
+            beginDrag(param, e.clientY);
+            e.preventDefault();
         });
+        knob.addEventListener('touchstart', e => {
+            beginDrag(param, e.touches[0].clientY);
+            e.preventDefault(); 
+        }, {passive: false});
     });
+
+    const handleKnobMove = (clientY) => {
+        const dy = startY - clientY; // 上移動でプラス
+        // 150pxのドラッグで 0.0 ~ 1.0 になる感度
+        let ratio = startRatio + (dy / 150);
+        ratio = Math.max(0, Math.min(1, ratio));
+        
+        const config = KNOB_CONFIG[activeKnob];
+        const val = ratioToVal(ratio, config.min, config.max, config.log);
+        
+        updateKnobVisual(activeKnob, ratio, val);
+        
+        const track = STATE.tracks.find(t => t.id === editingTrackId);
+        if (activeKnob === 'attack') track.attack = val / 1000;
+        else if (activeKnob === 'decay') track.decay = val / 1000;
+        else if (activeKnob === 'sustain') track.sustain = val / 100;
+        else if (activeKnob === 'release') track.release = val / 1000;
+    };
+
+    window.addEventListener('mousemove', e => {
+        if (activeKnob) handleKnobMove(e.clientY);
+    });
+    
+    window.addEventListener('touchmove', e => {
+        if (activeKnob) {
+            handleKnobMove(e.touches[0].clientY);
+            e.preventDefault();
+        }
+    }, {passive: false});
+
+    const endDrag = () => {
+        if (activeKnob) {
+            activeKnob = null;
+            document.body.style.cursor = 'default';
+        }
+    };
+    
+    window.addEventListener('mouseup', endDrag);
+    window.addEventListener('touchend', endDrag);
 
     closeBtn.addEventListener('click', () => {
         modal.classList.remove('show');
@@ -396,10 +496,18 @@ function openSynthModal(trackId) {
     
     document.getElementById('modal-track-name').textContent = `${track.name} Settings`;
     document.getElementById('synth-waveform').value = track.waveform;
-    document.getElementById('synth-attack').value = track.attack * 1000;
-    document.getElementById('synth-decay').value = track.decay * 1000;
-    document.getElementById('synth-sustain').value = track.sustain * 100;
-    document.getElementById('synth-release').value = track.release * 1000;
+    
+    // UIへの初期値反映['attack', 'decay', 'sustain', 'release'].forEach(param => {
+        let val = 0;
+        if (param === 'attack') val = track.attack * 1000;
+        else if (param === 'decay') val = track.decay * 1000;
+        else if (param === 'sustain') val = track.sustain * 100;
+        else if (param === 'release') val = track.release * 1000;
+        
+        const config = KNOB_CONFIG[param];
+        const ratio = valToRatio(val, config.min, config.max, config.log);
+        updateKnobVisual(param, Math.max(0, Math.min(1, ratio)), val);
+    });
     
     document.getElementById('synth-modal').classList.add('show');
 }
@@ -435,7 +543,6 @@ function setupColorPickerModal() {
     });
 }
 
-// 追加: MIDIロード設定用のモーダル処理
 function setupMidiLoadModal() {
     const modal = document.getElementById('midi-load-modal');
     const btnCancel = document.getElementById('btn-midi-cancel');

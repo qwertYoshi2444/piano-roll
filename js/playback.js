@@ -1,6 +1,5 @@
 import { STATE } from './state.js';
-import { renderAll } from './renderer.js';
-// 追加: playReferenceAudio, stopReferenceAudio
+import { renderAll, startLerpAnimation } from './renderer.js'; // 追加: startLerpAnimation
 import { initAudio, startScheduler, stopAllSounds, scheduleNotes, playReferenceAudio, stopReferenceAudio } from './audio-engine.js';
 
 let lastTime = 0;
@@ -21,8 +20,6 @@ export function togglePlayback() {
         btnPlay.innerHTML = `${ICON_STOP} <span id="label-play">Stop</span>`;
         
         startScheduler(); 
-        
-        // 追加: リファレンス音声の再生開始
         playReferenceAudio(STATE.playheadTick);
         
         lastTime = performance.now();
@@ -38,7 +35,6 @@ export function togglePlayback() {
         }
         
         stopAllSounds(); 
-        // 追加: リファレンス音声の強制停止
         stopReferenceAudio();
     }
     
@@ -66,16 +62,20 @@ function playbackLoop(currentTime) {
 
     const canvasGrid = document.getElementById('grid-canvas');
     if (canvasGrid) {
-        const visibleTicks = canvasGrid.width / STATE.zoomX;
+        // 変更: targetZoomX を使用して見えている範囲を計算
+        const visibleTicks = canvasGrid.width / STATE.targetZoomX;
         const scrollThresholdOffset = visibleTicks * 0.8; 
-        const scrollThresholdTick = STATE.scrollTick + scrollThresholdOffset;
+        const scrollThresholdTick = STATE.targetScrollTick + scrollThresholdOffset;
 
+        // 変更: スクロール時に目標値を更新し Lerp させる
         if (STATE.playheadTick > scrollThresholdTick) {
-            STATE.scrollTick = STATE.playheadTick - scrollThresholdOffset;
+            STATE.targetScrollTick = STATE.playheadTick - scrollThresholdOffset;
+            startLerpAnimation();
         }
         
-        if (STATE.playheadTick < STATE.scrollTick) {
-            STATE.scrollTick = STATE.playheadTick;
+        if (STATE.playheadTick < STATE.targetScrollTick) {
+            STATE.targetScrollTick = STATE.playheadTick;
+            startLerpAnimation();
         }
     }
 
