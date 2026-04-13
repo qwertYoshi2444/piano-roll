@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FL Studio Clone - Piano Roll (Phase 8.2 - Phase 2 Enhancements)</title>
+    <title>FL Studio Clone - Piano Roll (Phase 8.3 - Phase 3 Enhancements)</title>
     <style>
         body { 
             margin: 0; padding: 0; 
@@ -45,9 +45,23 @@
         
         .spacer { flex-grow: 1; }
         
-        #editor-area { 
-            display: flex; flex: 1; overflow: hidden; position: relative;
+        /* 追加: ファイルメニューのドロップダウンスタイル */
+        .dropdown { position: relative; display: inline-block; }
+        .dropdown-btn { background-color: #2a5a2a; border-color: #1e401e; }
+        .dropdown-content {
+            display: none; position: absolute; right: 0; top: 100%;
+            background-color: #2c3032; min-width: 140px; box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+            z-index: 1000; border: 1px solid #555; border-radius: 4px; overflow: hidden;
         }
+        .dropdown-content a {
+            color: #d0d0d0; padding: 10px 14px; text-decoration: none; display: block; font-size: 12px;
+            border-bottom: 1px solid #1a1c1d;
+        }
+        .dropdown-content a:last-child { border-bottom: none; }
+        .dropdown-content a:hover { background-color: #4b5155; color: #fff; }
+        .dropdown:hover .dropdown-content { display: block; }
+        
+        #editor-area { display: flex; flex: 1; overflow: hidden; position: relative; }
         
         #track-panel-container {
             width: 200px; background-color: #2c3032; border-right: 1px solid #1a1c1d;
@@ -61,23 +75,16 @@
             display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: bold; flex-shrink: 0;
         }
 
-        /* 追加: リファレンストラック用のスタイル */
         #ref-track-container { flex-shrink: 0; border-bottom: 2px solid #1a1c1d; }
-        .ref-track-item {
-            display: flex; flex-direction: column; padding: 8px; background-color: #242729; gap: 6px;
-        }
+        .ref-track-item { display: flex; flex-direction: column; padding: 8px; background-color: #242729; gap: 6px; }
         .ref-file-label {
             font-size: 10px; background: #3b4043; padding: 4px 6px; border-radius: 3px; cursor: pointer; border: 1px solid #555;
             display: flex; align-items: center; justify-content: center;
         }
         .ref-file-label:hover { background: #4b5155; color: #fff; border-color: #888; }
-        .ref-file-name {
-            font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1; padding-left: 8px;
-        }
+        .ref-file-name { font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1; padding-left: 8px; }
         
-        #track-list { 
-            flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; width: 200px; 
-        }
+        #track-list { flex: 1; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; width: 200px; }
         #track-list::-webkit-scrollbar { width: 6px; }
         #track-list::-webkit-scrollbar-track { background: #1e2122; }
         #track-list::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
@@ -89,9 +96,7 @@
         .track-item:hover { background-color: #3b4043; }
         .track-item.active { background-color: #4b5155; }
         
-        .track-item-top {
-            display: flex; align-items: center; width: 100%;
-        }
+        .track-item-top { display: flex; align-items: center; width: 100%; }
         
         .track-color-indicator { width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; border: 1px solid #000; flex-shrink: 0; cursor: pointer; }
         .track-name { flex-grow: 1; font-size: 12px; font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text; }
@@ -105,9 +110,7 @@
         .tc-btn.muted { background-color: #ff3333; color: #fff; border-color: #cc0000; }
         .tc-btn.soloed { background-color: #33cc33; color: #fff; border-color: #009900; }
         
-        .track-vol-container {
-            display: flex; align-items: center; gap: 5px; padding: 0 4px;
-        }
+        .track-vol-container { display: flex; align-items: center; gap: 5px; padding: 0 4px; }
         .track-vol-container label { font-size: 10px; color: #888; }
         .track-vol { flex-grow: 1; accent-color: #ff6600; cursor: pointer; height: 4px; }
         
@@ -127,20 +130,27 @@
         #keyboard-canvas { width: 80px; background-color: #1e2122; border-right: 1px solid #1a1c1d; flex-shrink: 0; touch-action: none; cursor: pointer; }
         #grid-canvas { flex: 1; background-color: #1e2122; outline: none; touch-action: none; }
         
-        #synth-modal, #color-picker-modal {
+        /* モーダル群 */
+        .modal-overlay {
             display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
             background-color: #2c3032; border: 1px solid #555; border-radius: 8px; padding: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8); z-index: 1000;
         }
+        .modal-overlay.show { display: block; }
+        
         #synth-modal { width: 300px; }
         #color-picker-modal { width: 240px; padding: 15px; }
-        
-        #synth-modal.show, #color-picker-modal.show { display: block; }
+        #midi-load-modal { width: 280px; }
         
         .modal-title { font-size: 16px; font-weight: bold; margin-bottom: 15px; color: #ff6600; border-bottom: 1px solid #555; padding-bottom: 5px; }
         .modal-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; font-size: 13px; }
         .modal-row select, .modal-row input[type="range"] { width: 150px; }
-        .modal-close-btn { width: 100%; padding: 8px; margin-top: 10px; background-color: #3b4043; border: 1px solid #555; color: #fff; cursor: pointer; border-radius: 4px; }
+        
+        .modal-btn-group { display: flex; gap: 10px; margin-top: 20px; }
+        .modal-btn { flex: 1; padding: 8px; background-color: #3b4043; border: 1px solid #555; color: #fff; cursor: pointer; border-radius: 4px; }
+        .modal-btn.primary { background-color: #ff6600; border-color: #cc5200; font-weight: bold; }
+        .modal-btn:hover { background-color: #4b5155; }
+        .modal-btn.primary:hover { background-color: #ff8533; }
         
         .color-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; margin-bottom: 10px; }
         .color-cell { width: 20px; height: 20px; border-radius: 50%; cursor: pointer; border: 1px solid #111; }
@@ -198,15 +208,23 @@
         </div>
         
         <div class="spacer"></div>
-        <button class="tool-btn" id="btn-export" title="Export as .mid" style="background-color: #2a5a2a; border-color: #1e401e;">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Export
-        </button>
+        
+        <!-- 変更: Fileドロップダウンメニューの追加 -->
+        <div class="dropdown">
+            <button class="tool-btn dropdown-btn" title="File Menu">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" style="margin-right:4px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg> File ▼
+            </button>
+            <div class="dropdown-content">
+                <a href="#" id="menu-load-midi">Load MIDI...</a>
+                <a href="#" id="menu-export-midi">Export MIDI...</a>
+            </div>
+        </div>
+        <input type="file" id="hidden-midi-input" accept=".mid,.midi" style="display: none;">
     </div>
     
     <div id="editor-area">
         <div id="track-panel-container">
             <div id="track-panel-header">TRACKS</div>
-            <!-- 追加: リファレンストラックコンテナ -->
             <div id="ref-track-container"></div>
             <div id="track-list"></div>
         </div>
@@ -224,7 +242,7 @@
     </div>
 </div>
 
-<div id="synth-modal">
+<div class="modal-overlay" id="synth-modal">
     <div class="modal-title" id="modal-track-name">Track Settings</div>
     <div class="modal-row">
         <label>Waveform</label>
@@ -251,13 +269,40 @@
         <label>Release (ms)</label>
         <input type="range" id="synth-release" min="1" max="3000" step="1" value="5">
     </div>
-    <button class="modal-close-btn" id="modal-close">Done</button>
+    <button class="modal-btn primary" id="modal-close" style="width: 100%; margin-top: 10px;">Done</button>
 </div>
 
-<div id="color-picker-modal">
+<div class="modal-overlay" id="color-picker-modal">
     <div class="modal-title" style="font-size: 14px;">Select Track Color</div>
     <div class="color-grid" id="color-grid"></div>
-    <button class="modal-close-btn" id="color-modal-close">Cancel</button>
+    <button class="modal-btn" id="color-modal-close" style="width: 100%;">Cancel</button>
+</div>
+
+<!-- 追加: MIDIロード設定モーダル -->
+<div class="modal-overlay" id="midi-load-modal">
+    <div class="modal-title" style="font-size: 15px;">Load MIDI File</div>
+    
+    <div style="font-size: 12px; margin-bottom: 10px; color: #aaa;" id="midi-info-text">Parsing file...</div>
+    
+    <div class="modal-row">
+        <label>Tracks:</label>
+        <select id="midi-load-track-mode">
+            <option value="overwrite">Overwrite All</option>
+            <option value="append">Append as New Tracks</option>
+        </select>
+    </div>
+    <div class="modal-row">
+        <label>BPM:</label>
+        <select id="midi-load-bpm-mode">
+            <option value="use_midi">Use MIDI BPM</option>
+            <option value="keep">Keep Current</option>
+        </select>
+    </div>
+    
+    <div class="modal-btn-group">
+        <button class="modal-btn" id="btn-midi-cancel">Cancel</button>
+        <button class="modal-btn primary" id="btn-midi-confirm">Load</button>
+    </div>
 </div>
 
 <script type="module" src="./js/main.js"></script>
